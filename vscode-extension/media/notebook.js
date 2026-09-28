@@ -15,6 +15,14 @@
   const staleOnDisk = new Set();  // ...and changed on disk meanwhile
   const fileRuns = new Map();     // path -> result of the last run (save) of that file
   const ranSrc = new Map();       // code block key -> the source it last ran with
+  // Collapsed headings, by their text; kept in the webview state across reloads.
+  const collapsed = new Set((vscode.getState() || {}).collapsed || []);
+  const saveCollapsed = () => vscode.setState({...(vscode.getState() || {}), collapsed: [...collapsed]});
+  const heading = b => {
+    if (b.kind !== "text") return null;
+    const m = b.src.split("\n")[0].match(/^(#{1,6})\s+(.*)$/);
+    return m ? {level: m[1].length, key: m[0].trim()} : null;
+  };
   const isStale = b => ranSrc.has(b.key) && ranSrc.get(b.key) !== b.src;
   let colors = {};
 
@@ -126,12 +134,18 @@
       h("button", {title: b.kind === "file" ? "Remove from page (the file stays)" : "Delete", onclick: del}, "✕"));
   }
 
-  function textView(b, i) {
+  function textView(b, i, hidden = 0) {
     const body = h("div", {class: "body"});
+    const hd = heading(b);
+    const closed = hd && collapsed.has(hd.key);
+    const toggle = () => {
+      if (closed) collapsed.delete(hd.key); else collapsed.add(hd.key);
+      saveCollapsed(); render();
+    };
     const show = () => {
       body.replaceChildren();
       const md = h("div", {class: "md", title: "Double-click to edit"});
-      md.innerHTML = markdown(b.src);
+      md.innerHTML = markdown(closed ? b.src.split("\n")[0] : b.src);
       md.addEventListener("dblclick", edit);
       md.addEventListener("click", e => {
         const a = e.target.closest("a");
@@ -141,6 +155,8 @@
         if (!/^https?:/.test(p)) vscode.postMessage({type: "open", path: p, line: Number(l) || 1});
       });
       body.append(md);
+      if (closed) body.append(h("button", {class: "hidden-note", onclick: toggle},
+        hidden ? `${hidden} block${hidden === 1 ? "" : "s"} hidden` : "collapsed"));
     };
     const edit = () => {
       const ta = sourceArea(b.src, {onInput: v => { b.src = v; push(); }});
@@ -150,7 +166,9 @@
     };
     show();
     if (b.fresh) { delete b.fresh; requestAnimationFrame(edit); }
-    return h("div", {class: "blk text"}, h("div", {class: "gut"}), body, tools(i));
+    const arrow = hd && h("button", {class: "fold", title: closed ? "Expand" : "Collapse",
+      "aria-expanded": closed ? "false" : "true", onclick: toggle}, closed ? "▸" : "▾");
+    return h("div", {class: "blk text" + (hd ? " h" + hd.level : "")}, h("div", {class: "gut"}, arrow), body, tools(i));
   }
 
   // Running a file block saves it, changed or not; the extension reports back ("saved").
@@ -330,10 +348,21 @@
     const views = [topBar()];
     if (banner) views.push(h("div", {class: "banner"}, banner));
     if (!blocks.length) views.push(h("p", {class: "empty"}, "Empty page. Start with a heading, a file or some code."));
-    blocks.forEach((b, i) => {
+    // A collapsed heading hides what follows, up to the next heading of the same or higher level.
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i], hd = heading(b);
       views.push(addBar(i, false));
-      views.push(b.kind === "text" ? textView(b, i) : b.kind === "file" ? fileView(b, i) : codeView(b, i));
-    });
+      if (b.kind !== "text") {
+        views.push(b.kind === "file" ? fileView(b, i) : codeView(b, i));
+        continue;
+      }
+      let j = i + 1;
+      if (hd && collapsed.has(hd.key)) {
+        while (j < blocks.length && !(heading(blocks[j]) && heading(blocks[j]).level <= hd.level)) j++;
+      }
+      views.push(textView(b, i, j - i - 1));
+      i = j - 1;
+    }
     views.push(addBar(blocks.length, true));
     app.replaceChildren(...views);
     window.scrollTo(0, scroll);

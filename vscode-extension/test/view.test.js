@@ -4,7 +4,9 @@ const assert = require("assert");
 const src = fs.readFileSync(__dirname + "/../media/notebook.js", "utf8");
 const dom = new JSDOM(`<body class="vscode-dark"><div id="app"></div></body>`, {runScripts: "outside-only", pretendToBeVisual: true});
 const w = dom.window, sent = [];
-w.acquireVsCodeApi = () => ({postMessage: m => sent.push(JSON.parse(JSON.stringify(m)))});
+let wstate;
+w.acquireVsCodeApi = () => ({postMessage: m => sent.push(JSON.parse(JSON.stringify(m))),
+  getState: () => wstate, setState: v => { wstate = JSON.parse(JSON.stringify(v)); }});
 w.HTMLCanvasElement.prototype.getContext = () => ({set fillStyle(v) { this._v = v; }, get fillStyle() { return "#123456"; }});
 w.CSS = {escape: s => s};
 w.scrollTo = () => {};
@@ -167,6 +169,27 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   send({type: "kernel", ev: {type: "fatal", message: "Could not start python3"}});
   assert.strictEqual($(".banner").textContent, "Could not start python3");
   assert.ok($(".kstate").className.includes("dead"));
+  // collapsing a heading hides what is under it, down to the next heading of its level
+  send({type: "render", name: "c.regain.md", root: "/r", colors: {},
+    blocks: [{kind: "text", src: "# Top\nintro"}, {kind: "text", src: "## A\nabout A"},
+             {kind: "code", src: "a = 1"}, {kind: "text", src: "## B"}, {kind: "code", src: "b = 2"}],
+    files: {}});
+  assert.strictEqual($$(".fold").length, 3);
+  $$(".fold")[1].click();                                   // collapse A
+  assert.strictEqual($$(".blk").length, 4, "A's code is hidden");
+  assert.ok(!$$(".blk.text")[1].textContent.includes("about A"), "only the heading line shows");
+  assert.strictEqual($$(".hidden-note")[0].textContent, "1 block hidden");
+  assert.strictEqual($$(".fold")[1].textContent, "▸");
+  assert.deepStrictEqual(wstate.collapsed, ["## A"]);
+  $$(".fold")[0].click();                                   // collapse Top: hides everything under it
+  assert.strictEqual($$(".blk").length, 1);
+  assert.strictEqual($(".hidden-note").textContent, "4 blocks hidden");
+  $(".hidden-note").click();                                // expand Top again; A stays collapsed
+  assert.strictEqual($$(".blk").length, 4);
+  $$(".fold")[1].click();                                   // expand A
+  assert.strictEqual($$(".blk").length, 5);
+  assert.deepStrictEqual(wstate.collapsed, []);
+
   console.log("view: all passed");
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });
