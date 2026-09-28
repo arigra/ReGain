@@ -1,0 +1,314 @@
+<title>מפת radSeq</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;600&family=Assistant:wght@400;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+:root{
+  --bg:#F2F5F7; --surface:#FFFFFF; --ink:#15202A; --muted:#5A6874; --line:#D5DDE4;
+  --data:#0E7A89; --data-soft:#E1F1F3;
+  --model:#4250C0; --model-soft:#E7E9F8;
+  --exp:#A8691A; --exp-soft:#F6ECDD;
+  --live:#1F8A4C; --warn:#A8691A; --off:#7D8791;
+  --shadow:0 1px 2px rgba(21,32,42,.06),0 4px 14px rgba(21,32,42,.06);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0F151B; --surface:#17212B; --ink:#E5ECF1; --muted:#95A3AF; --line:#2A3743;
+    --data:#4FC0CF; --data-soft:#16303A;
+    --model:#8C97F0; --model-soft:#212743;
+    --exp:#E0A552; --exp-soft:#352A1A;
+    --live:#5BCB8A; --warn:#E0A552; --off:#8A949E;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0F151B; --surface:#17212B; --ink:#E5ECF1; --muted:#95A3AF; --line:#2A3743;
+  --data:#4FC0CF; --data-soft:#16303A;
+  --model:#8C97F0; --model-soft:#212743;
+  --exp:#E0A552; --exp-soft:#352A1A;
+  --live:#5BCB8A; --warn:#E0A552; --off:#8A949E;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:"Assistant","Arial Hebrew",Arial,sans-serif;font-size:17px;line-height:1.55}
+.wrap{direction:rtl;max-width:1080px;margin:0 auto;padding-inline:20px;padding-block:36px 64px;display:flex;flex-direction:column;gap:36px}
+h1,h2,h3{font-family:"Rubik","Arial Hebrew",Arial,sans-serif;font-weight:600;margin:0;text-wrap:balance}
+h1{font-size:30px;letter-spacing:-.01em}
+.essence{margin:8px 0 0;color:var(--muted);max-width:62ch}
+.levels{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+.lv{font-size:14px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--surface)}
+.lv[aria-current="true"]{border-color:var(--ink);color:var(--ink);font-weight:600}
+.lv.soon{opacity:.55}
+.label{font-size:13px;letter-spacing:.06em;color:var(--muted);font-weight:600;margin-bottom:12px}
+
+/* flow */
+.flow{display:flex;align-items:center;gap:10px;overflow-x:auto;padding:6px 2px 10px}
+.inputs{display:flex;flex-direction:column;gap:10px}
+.block{appearance:none;font:inherit;color:inherit;text-align:right;cursor:pointer;
+  background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;min-width:130px;
+  display:flex;flex-direction:column;gap:2px;transition:border-color .15s,transform .15s,box-shadow .15s}
+.block:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+.block:focus-visible{outline:3px solid var(--model);outline-offset:2px}
+.block .n{font-family:"Rubik",sans-serif;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.block .t{font-family:"Rubik",sans-serif;font-weight:500;font-size:16px;white-space:nowrap}
+.block.data{background:var(--data-soft)} .block.data .n{color:var(--data)}
+.block.model{background:var(--model-soft)} .block.model .n{color:var(--model)}
+.block.exp{background:var(--exp-soft);border-style:dashed} .block.exp .n{color:var(--exp)}
+.block[aria-pressed="true"]{border-color:var(--ink);box-shadow:var(--shadow)}
+.arrow{flex:none;color:var(--muted);width:22px;height:14px}
+.merge{flex:none;color:var(--muted);width:26px;height:120px}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:14px;color:var(--muted);margin-top:6px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;border:1.5px solid var(--line)}
+
+/* chapter card */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:26px;display:grid;grid-template-columns:1fr 330px;gap:28px}
+figure.viz{grid-column:1/-1;margin:0;border-top:1px solid var(--line);padding-top:22px;display:flex;flex-direction:column;gap:10px}
+figure.viz .ttl{font-family:"Rubik",sans-serif;font-weight:500;font-size:17px}
+figure.viz .scroll{overflow-x:auto}
+figure.viz svg{display:block;width:100%;min-width:560px;height:auto;color:var(--ink)}
+figure.viz figcaption{color:var(--muted);font-size:15px;max-width:70ch}
+.card-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.chip-n{font-family:"Rubik",sans-serif;font-size:14px;font-weight:600;width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:#fff}
+.status{font-size:13px;font-weight:600;padding:3px 10px;border-radius:999px;border:1px solid currentColor}
+.what{margin:14px 0 22px;font-size:18px;max-width:52ch}
+.io{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}
+.io .box{flex:1 1 180px;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.io .k{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.04em}
+.io .v{font-size:16px}
+.io svg{align-self:center;flex:none;width:22px;height:14px;color:var(--muted)}
+.files{display:flex;flex-direction:column;gap:8px}
+.file{padding:9px 11px;border-radius:9px;background:var(--bg);border:1px solid var(--line);display:flex;flex-direction:column;gap:3px}
+.file .path{direction:ltr;text-align:left;font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:13px;overflow-wrap:anywhere}
+.file .fn{direction:ltr;text-align:left;font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted)}
+.file .d{font-size:14.5px;line-height:1.45}
+.slot{margin-top:22px;border:1.5px dashed var(--line);border-radius:10px;padding:18px;color:var(--muted);font-size:15px;text-align:center}
+.next{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap}
+.btn{font:inherit;font-size:15px;padding:8px 16px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.btn:focus-visible{outline:3px solid var(--model);outline-offset:2px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+@media (max-width:720px){
+  .wrap{padding-inline:16px}
+  .flow{flex-direction:column;align-items:stretch;overflow:visible}
+  .inputs{flex-direction:row}
+  .inputs .block{flex:1}
+  .block{min-width:0}
+  .arrow{transform:rotate(-90deg);align-self:center}
+  .merge{display:none}
+  .card{grid-template-columns:1fr;padding:20px}
+}
+@media (prefers-reduced-motion:reduce){.block{transition:none}.block:hover{transform:none}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>radSeq</h1>
+    <p class="essence">מודל diffusion שמייצר סדרות של מפות Range-Doppler. בודקים אם מודל שאומן על סימולטור וקיבל fine-tune על מעט מידע אמיתי הוא מקור טוב יותר לאימון גלאי מאשר הסימולטור עצמו.</p>
+    <nav class="levels" aria-label="רמות עומק">
+      <span class="lv" aria-current="true">רמה 0 · התמונה הגדולה</span>
+      <span class="lv" aria-current="true">רמה 1 · פרק</span>
+      <span class="lv soon">רמה 2 · הקוד והפרטים</span>
+    </nav>
+  </header>
+
+  <section>
+    <div class="label">איך הפרויקט זורם</div>
+    <div class="flow" id="flow"></div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--data-soft)"></i>מידע</span>
+      <span><i class="sw" style="background:var(--model-soft)"></i>מודל</span>
+      <span><i class="sw" style="background:var(--exp-soft);border-style:dashed"></i>עוד לא נבנה</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="label">הפרק שנבחר</div>
+    <article class="card" id="card" aria-live="polite"></article>
+  </section>
+</div>
+
+<script>
+const F = (path, fn, d) => ({path, fn, d});
+const CH = [
+  {n:1, t:"המידע האמיתי", g:"data", st:"live", fig:"ddma",
+   what:"RADIal: 91 הקלטות נסיעה ממכ״ם 77GHz. טוענים מפות Range-Doppler ומיקומי רכבים מסומנים.",
+   in:"קבצי FFT ו־labels.csv", out:"מפות dB בגודל 512×256 ומיקומי רכבים",
+   files:[F("src/radial.py","read_labels · split_recordings · power_map","קורא את התוויות, מחלק הקלטות ל־train/val/test, וטוען מפה של פריים."),
+          F("data/radial/split.json","","החלוקה הקבועה של ההקלטות. לא משתנה בין ניסויים.")],
+   see:"מפת RADIal אחת, עם הרכבים המסומנים"},
+  {n:2, t:"הסימולטור", g:"data", st:"live",
+   what:"בונה סצנה מכביש, רכבים ופיזיקה של המכ״ם. שתי גרסאות: \"מהנדס\" שלא כויל, ו\"מותאם\" שכויל ל־RADIal.",
+   in:"סוג כביש ופרמטרים של המכ״ם", out:"8 מפות רצופות ומיקומי רכבים בתנועה",
+   files:[F("src/scene_sim.py","SceneSimulator.gen_sequence","בונה סצנה, מזיז אותה 8 פריימים ומרנדר כל פריים למפה, כולל העותקים של DDMA."),
+          F("src/radar_physics.py","RADIAL_SPEC","הפרמטרים המפורסמים של המכ״ם ומשוואת המכ״ם."),
+          F("scripts/fit_scene_simulator.py","main","מחפש ערכים לפרמטרים הלא ודאיים כך שהסטטיסטיקה תתאים ל־RADIal."),
+          F("configs/scene_fitted.json","","הערכים שנמצאו. מהם נבנית הגרסה המותאמת.")],
+   see:"סדרה מסומלצת לצד סדרה אמיתית"},
+  {n:3, t:"הכנה לאימון", g:"data", st:"live",
+   what:"6,000 סדרות לכל גרסה נשמרות לדיסק ומנורמלות. מיקומי הרכבים הופכים למפות התניה.",
+   in:"סדרות מהסימולטור", out:"טנזור (8, 512, 256) ומפת התניה",
+   files:[F("scripts/build_scene_cache.py","render_split","מייצר את הסדרות ושומר אותן לדיסק. אם נעצר, ממשיך מאיפה שעצר."),
+          F("src/scene_data.py","SceneSequenceDataset","קורא סדרה מהדיסק ומנרמל אותה לפי הממוצע וסטיית התקן של ה־cache."),
+          F("src/trajectory_condition.py","render_vehicle_condition","הופך מיקומי רכבים לשתי מפות התניה באותו גודל של המפה.")],
+   see:"מפה לפני ואחרי נרמול, ומפת ההתניה שלה"},
+  {n:4, t:"המודל", g:"model", st:"live", fig:"attn",
+   what:"DiT: כל פריים נחתך לריבועים של 16×16. כל ריבוע מסתכל על עצמו לאורך הזמן, ואז על שאר הריבועים באותו פריים.",
+   in:"סדרה רועשת, מפת התניה ורמת רעש", out:"חיזוי באותו גודל",
+   files:[F("src/dit.py","TemporalDiT · FactorizedBlock","המודל עצמו. FactorizedBlock הוא הבלוק שבשימוש: attention בזמן, attention במרחב, MLP."),
+          F("src/patching.py","patchify · unpatchify","חותך פריים לריבועים ומרכיב אותם בחזרה.")],
+   see:"הגודל של הטנזור בכל שלב בתוך המודל"},
+  {n:5, t:"אימון", g:"model", st:"run",
+   what:"מוסיפים רעש למפות, והמודל לומד להסיר אותו. 60,000 צעדים לכל גרסה של הסימולטור, על ה־HPC.",
+   in:"המידע המוכן וקובץ הגדרות", out:"checkpoint של מודל מאומן",
+   files:[F("src/diffusion.py","GaussianDiffusion","כמה רעש יש בכל שלב, ומה המודל צריך לחזות."),
+          F("src/train.py","train","לולאת האימון: batch, רעש, חיזוי, loss, שמירת checkpoints."),
+          F("configs/pretrain_engineer.yaml","","כל ההגדרות של הריצה: גודל המודל, רעש, צעדים."),
+          F("scripts/pretrain.sbatch","","מגיש את האימון לתור של ה־HPC.")],
+   see:"עקומת ה־loss מהלוג"},
+  {n:6, t:"דגימה והערכה", g:"model", st:"live",
+   what:"מתחילים מרעש טהור ומגיעים לסדרה ב־30 צעדים. אחר כך משווים אותה לסימולטור.",
+   in:"checkpoint ומיקומי רכבים מבוקשים", out:"סדרות חדשות ומדדים",
+   files:[F("src/sample.py","generate_trajectory_conditioned","טוען מודל ומייצר סדרות לפי מיקומי רכבים מבוקשים."),
+          F("src/eval/","metrics · cfar · adherence","המדדים: זיהוי מטרות, מעקב לאורך זמן, והאם הרכבים הופיעו איפה שביקשנו."),
+          F("scripts/scene_dit_smoke.py","main","בדיקת המתכון: כמה ריצות קצרות ובחירה ביניהן.")],
+   see:"סדרה שהמודל ייצר"},
+  {n:7, t:"הניסוי", g:"exp", st:"off",
+   what:"fine-tune על RADIal, ואז גלאי שמאומן בשלוש זרועות: A רק מידע אמיתי, B אמיתי + סימולטור, D אמיתי + DiT.",
+   in:"מודל מאומן ומעט מידע אמיתי", out:"השוואה בין A, B ו־D",
+   files:[], see:"עוד אין מה להציג"}
+];
+
+/* ---------- figures ---------- */
+function figDDMA(){
+  const x0=60, sw=40, y0=44, h=120, cy=104, off=15;
+  let g='';
+  for(let s=1;s<16;s++) g+=`<line x1="${x0+s*sw}" y1="${y0}" x2="${x0+s*sw}" y2="${y0+h}" stroke="currentColor" stroke-opacity=".12"/>`;
+  const empty=`<rect x="${x0+sw}" y="${y0}" width="${4*sw}" height="${h}" fill="url(#hatch)"/>`;
+  let dots='';
+  [0,5,6,7,8,9,10,11,12,13,14,15].forEach(s=>{
+    const x=x0+s*sw+off;
+    dots+= s===0
+      ? `<circle cx="${x}" cy="${cy}" r="7" style="fill:var(--data)"/>`
+      : `<circle cx="${x}" cy="${cy}" r="6" fill="currentColor" fill-opacity=".55"/>`;
+  });
+  const ticks=[0,80,160,240].map(b=>{const x=x0+b/16*sw;return `<line x1="${x}" y1="${y0+h}" x2="${x}" y2="${y0+h+5}" stroke="currentColor"/><text x="${x}" y="${y0+h+20}" text-anchor="middle" font-size="12" fill="currentColor">${b}</text>`}).join('');
+  const br=(a,b,y,label)=>`<path d="M${a} ${y+6}V${y}H${b}V${y+6}" fill="none" stroke="currentColor" stroke-opacity=".6"/><text x="${(a+b)/2}" y="${y-6}" text-anchor="middle" font-size="13" fill="currentColor">${label}</text>`;
+  return `<svg viewBox="0 0 720 210" role="img" aria-label="החזר אחד מופיע 12 פעמים לאורך ציר הדופלר: פעם אחת בסלוט 0, סלוטים 1 עד 4 ריקים, ועוד 11 עותקים 16 bins זה מזה">
+    <defs><pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="7" height="7" fill="currentColor" fill-opacity=".05"/><line x1="0" y1="0" x2="0" y2="7" stroke="currentColor" stroke-opacity=".22" stroke-width="2"/></pattern></defs>
+    <rect x="${x0}" y="${y0}" width="${16*sw}" height="${h}" fill="none" stroke="currentColor" stroke-opacity=".5" rx="3"/>
+    ${empty}${g}
+    <line x1="${x0}" y1="${cy}" x2="${x0+16*sw}" y2="${cy}" stroke="currentColor" stroke-opacity=".18" stroke-dasharray="3 4"/>
+    ${dots}
+    <text x="${x0+off}" y="${cy-16}" text-anchor="middle" font-size="12" style="fill:var(--data)" font-weight="600">התווית</text>
+    ${br(x0+sw,x0+5*sw,24,"4 סלוטים ריקים")}
+    ${br(x0+5*sw,x0+16*sw,24,"11 עותקים, 16 bins בין אחד לשני")}
+    ${ticks}
+    <text x="${x0+8*sw}" y="202" text-anchor="middle" font-size="12" fill="currentColor" fill-opacity=".7">דופלר (bin)</text>
+    <text transform="translate(${x0-18} ${y0+h/2}) rotate(-90)" text-anchor="middle" font-size="12" fill="currentColor" fill-opacity=".7">טווח</text>
+  </svg>`;
+}
+function figAttn(){
+  const c=14, cols=4, rows=3, W=cols*c, H=rows*c, top=78;
+  const frame=(x,mode,label)=>{
+    let r='';
+    for(let i=0;i<cols;i++)for(let j=0;j<rows;j++){
+      const hot=i===1&&j===1;
+      let fill='fill="none"', op='';
+      if(mode==='time'&&hot) fill='style="fill:var(--model)"';
+      if(mode==='space') fill = hot?'style="fill:var(--model)"':'style="fill:var(--model);fill-opacity:.28"';
+      r+=`<rect x="${x+i*c}" y="${top+j*c}" width="${c}" height="${c}" ${fill} stroke="currentColor" stroke-opacity=".35"/>`;
+    }
+    const dim = mode==='dim' ? ' opacity=".35"' : '';
+    return `<g${dim}>${r}<text x="${x+W/2}" y="${top+H+20}" text-anchor="middle" font-size="12" fill="currentColor" fill-opacity=".75">${label}</text></g>`;
+  };
+  const xs=[0,72,144,232], labels=["t=1","t=2","t=3","t=8"];
+  const panel=(ox,kind)=>{
+    let out='';
+    xs.forEach((x,k)=>{
+      const mode = kind==='time' ? 'time' : (k===1 ? 'space' : 'dim');
+      out+=frame(ox+x,mode,labels[k]);
+    });
+    out+=`<text x="${ox+216}" y="${top+H/2+4}" text-anchor="middle" font-size="16" fill="currentColor" fill-opacity=".6">…</text>`;
+    if(kind==='time'){
+      const pts=xs.map(x=>[ox+x+c*1.5, top+c*1.5]);
+      let d=`M${pts[0][0]} ${pts[0][1]}`;
+      for(let k=1;k<pts.length;k++){const [a,b]=pts[k-1],[p,q]=pts[k];d+=` Q${(a+p)/2} ${top-26} ${p} ${q}`;}
+      out+=`<path d="${d}" fill="none" style="stroke:var(--model)" stroke-width="2"/>`;
+    }
+    return out;
+  };
+  // Hebrew reads right to left: step 1 (time) on the right, step 2 (space) on the left
+  return `<svg viewBox="0 0 720 190" role="img" aria-label="שני צעדים בכל בלוק: קודם attention בזמן, בין אותו ריבוע בכל 8 הפריימים; אחר כך attention במרחב, בין כל הריבועים של פריים אחד">
+    <text x="${412+144}" y="28" text-anchor="middle" font-size="15" font-weight="600" fill="currentColor">1 · attention בזמן</text>
+    <text x="${412+144}" y="48" text-anchor="middle" font-size="12" fill="currentColor" fill-opacity=".7">אותו ריבוע, לאורך 8 הפריימים</text>
+    ${panel(412,'time')}
+    <line x1="360" y1="30" x2="360" y2="170" stroke="currentColor" stroke-opacity=".15"/>
+    <text x="${20+144}" y="28" text-anchor="middle" font-size="15" font-weight="600" fill="currentColor">2 · attention במרחב</text>
+    <text x="${20+144}" y="48" text-anchor="middle" font-size="12" fill="currentColor" fill-opacity=".7">כל הריבועים של פריים אחד</text>
+    ${panel(20,'space')}
+  </svg>`;
+}
+const FIG = {
+  ddma:{ttl:"למה כל רכב מופיע 12 פעמים", svg:figDDMA,
+        cap:"המכ״ם שולח מ־12 משדרים בבת אחת, ולכל משדר יש קוד דופלר משלו. לכן כל החזר מופיע במפה 12 פעמים, 16 bins בין עותק לעותק. ארבעת הסלוטים הריקים הם הפסים הכהים שרואים במפות. התווית מסמנת רק את העותק הראשון. הסימולטור משחזר את זה בכוונה."},
+  attn:{ttl:"מה ה־attention עושה בכל בלוק", svg:figAttn,
+        cap:"כל פריים הוא 32×16 ריבועים (בציור 4×3). בצעד 1 ריבוע מסתכל על עצמו בכל 8 הפריימים, וכך המודל לומד תנועה. בצעד 2 הוא מסתכל על כל הריבועים באותו פריים, וכך הפריים נשאר סצנה אחת עקבית. המודל חוזר על שני הצעדים ב־12 בלוקים."}
+};
+const ST = {live:["פעיל","var(--live)"], run:["הופעל ב־21/9, מצב לא ידוע","var(--warn)"], off:["עוד לא נבנה","var(--off)"]};
+const COL = {data:"var(--data)", model:"var(--model)", exp:"var(--exp)"};
+const ARROW = '<svg class="arrow" viewBox="0 0 22 14" aria-hidden="true"><path d="M21 7H2M7 2L2 7l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const MERGE = '<svg class="merge" viewBox="0 0 26 120" aria-hidden="true"><path d="M26 30C12 30 12 60 2 60M26 90C12 90 12 60 2 60M8 55L2 60l6 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+let sel = 1;
+try { sel = +localStorage.getItem("radseq-ch") || 1; } catch(e) {}
+
+function block(c){
+  return `<button class="block ${c.g}" data-n="${c.n}" aria-pressed="${c.n===sel}"><span class="n">${c.n}</span><span class="t">${c.t}</span></button>`;
+}
+function drawFlow(){
+  const f = document.getElementById("flow");
+  f.innerHTML = `<div class="inputs">${block(CH[0])}${block(CH[1])}</div>${MERGE}${ARROW.replace('class="arrow"','class="arrow" style="display:none"')}`
+    + CH.slice(2).map((c,i)=> (i? ARROW:"") + block(c)).join("");
+  // on phones the merge curve hides; show a plain arrow instead
+  const mq = matchMedia("(max-width:720px)");
+  f.querySelector('.arrow[style]').style.display = mq.matches ? "" : "none";
+  f.querySelectorAll(".block").forEach(b=>b.onclick=()=>{sel=+b.dataset.n;try{localStorage.setItem("radseq-ch",sel)}catch(e){};render()});
+}
+function drawCard(){
+  const c = CH[sel-1], [sl,sc] = ST[c.st];
+  const files = c.files.length ? c.files.map(f=>`<div class="file"><span class="path">${f.path}</span>${f.fn?`<span class="fn">${f.fn}</span>`:""}<span class="d">${f.d}</span></div>`).join("") : `<div class="slot" style="margin:0">אין עדיין קבצים</div>`;
+  document.getElementById("card").innerHTML = `
+    <div>
+      <div class="card-head">
+        <span class="chip-n" style="background:${COL[c.g]}">${c.n}</span>
+        <h2>${c.t}</h2>
+        <span class="status" style="color:${sc}">${sl}</span>
+      </div>
+      <p class="what">${c.what}</p>
+      <div class="io">
+        <div class="box"><div class="k">נכנס</div><div class="v">${c.in}</div></div>
+        <svg viewBox="0 0 22 14" aria-hidden="true"><path d="M21 7H2M7 2L2 7l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div class="box"><div class="k">יוצא</div><div class="v">${c.out}</div></div>
+      </div>
+      <div class="slot">כאן יוצג פלט אמיתי: ${c.see}</div>
+      <div class="next">
+        <button class="btn" disabled title="רמה 2 עוד לא בנויה באב־הטיפוס">להעמיק ברמה 2</button>
+        ${sel<CH.length?`<button class="btn primary" id="nx">לפרק הבא</button>`:""}
+      </div>
+    </div>
+    <aside>
+      <div class="label">הקבצים</div>
+      <div class="files">${files}</div>
+    </aside>
+    ${c.fig?`<figure class="viz"><div class="ttl">${FIG[c.fig].ttl}</div><div class="scroll">${FIG[c.fig].svg()}</div><figcaption>${FIG[c.fig].cap}</figcaption></figure>`:""}`;
+  const nx = document.getElementById("nx");
+  if (nx) nx.onclick = ()=>{sel++;try{localStorage.setItem("radseq-ch",sel)}catch(e){};render()};
+}
+function render(){drawFlow();drawCard()}
+render();
+matchMedia("(max-width:720px)").addEventListener("change",render);
+</script>

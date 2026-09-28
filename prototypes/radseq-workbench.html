@@ -1,0 +1,461 @@
+<title>radSeq Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;600&family=Assistant:wght@400;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+:root{
+  --bg:#F2F5F7; --surface:#FFFFFF; --sunk:#F6F8FA; --ink:#15202A; --muted:#5A6874; --line:#D5DDE4;
+  --model:#4250C0; --model-soft:#E7E9F8;
+  --red:#D2463F; --red-soft:rgba(210,70,63,.12);
+  --yel:#C08A12; --yel-soft:rgba(214,160,30,.15);
+  --ok:#1F8A4C;
+  --shadow:0 1px 2px rgba(21,32,42,.06),0 4px 14px rgba(21,32,42,.06);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0F151B; --surface:#17212B; --sunk:#121A22; --ink:#E5ECF1; --muted:#95A3AF; --line:#2A3743;
+    --model:#8C97F0; --model-soft:#212743;
+    --red:#F07A72; --red-soft:rgba(240,122,114,.14);
+    --yel:#E5B94E; --yel-soft:rgba(229,185,78,.14);
+    --ok:#5BCB8A;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0F151B; --surface:#17212B; --sunk:#121A22; --ink:#E5ECF1; --muted:#95A3AF; --line:#2A3743;
+  --model:#8C97F0; --model-soft:#212743;
+  --red:#F07A72; --red-soft:rgba(240,122,114,.14);
+  --yel:#E5B94E; --yel-soft:rgba(229,185,78,.14);
+  --ok:#5BCB8A;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:"Assistant",Arial,sans-serif;font-size:16px;line-height:1.5}
+.app{direction:ltr;max-width:1320px;margin:0 auto;padding-inline:20px;padding-block:24px 48px;display:flex;flex-direction:column;gap:18px}
+h1,h2{font-family:"Rubik","Arial Hebrew",Arial,sans-serif;font-weight:600;margin:0;text-wrap:balance}
+h1{font-size:22px}
+h2{font-size:16px}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+
+/* header */
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.crumbs{display:flex;flex-direction:column;gap:2px}
+.crumbs .sub{color:var(--muted);font-size:14px}
+.pace{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.meter{display:flex;flex-direction:column;gap:4px;min-width:170px}
+.meter .k{font-size:13px;color:var(--muted)}
+.meter .bar{height:6px;border-radius:99px;background:var(--line);overflow:hidden}
+.meter .bar i{display:block;height:100%;background:var(--red);transition:width .3s}
+.meter .v{font-size:14px;font-variant-numeric:tabular-nums}
+.chapters{display:flex;gap:4px}
+.chapters span{width:22px;height:6px;border-radius:99px;background:var(--line)}
+.chapters span.on{background:var(--ink)}
+.btn{font:inherit;font-size:14px;padding:6px 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.btn:focus-visible,.piece:focus-visible,.ack:focus-visible{outline:3px solid var(--model);outline-offset:2px}
+
+/* panes */
+.panes{display:grid;grid-template-columns:1.45fr 1fr;gap:18px;align-items:start}
+.pane{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;min-width:0}
+.pane-hd{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.pane-hd .who{display:flex;align-items:center;gap:8px}
+.dot{width:9px;height:9px;border-radius:50%}
+.pane-hd .file{direction:ltr;font-size:13px;color:var(--muted)}
+.pane-bd{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+
+/* developer slots */
+.slot{border:1.5px dashed var(--line);border-radius:10px;padding:12px 14px;color:var(--muted);font-size:14px;display:flex;align-items:center;gap:8px;min-height:48px}
+.slot.next{border-color:var(--model);color:var(--ink);background:var(--model-soft)}
+.slot.over{border-style:solid}
+.slot.locked{opacity:.55}
+.placed{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.placed-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;background:var(--sunk);border-bottom:1px solid var(--line);font-size:13px}
+.placed-hd .nm{direction:ltr}
+.placed-hd .st{color:var(--muted)}
+.placed-hd .st.done{color:var(--ok);font-weight:600}
+.code{direction:ltr;text-align:left;font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.6;overflow-x:auto;padding:6px 0}
+.ln{display:flex;align-items:flex-start;white-space:pre;padding-inline:10px 8px}
+.ln .no{width:2.6em;flex:none;text-align:right;padding-right:1em;opacity:.4;user-select:none}
+.ln .tx{flex:1}
+.ln.dim .tx{opacity:.4}
+.ln.red{background:var(--red-soft);box-shadow:inset 3px 0 0 var(--red)}
+.ln.yellow{background:var(--yel-soft);box-shadow:inset 3px 0 0 var(--yel)}
+.why{direction:ltr;text-align:left;font-family:"Assistant",Arial,sans-serif;font-size:14px;white-space:normal;
+  padding:4px 14px 8px;display:flex;align-items:flex-start;gap:10px;justify-content:space-between}
+.why.red{background:var(--red-soft)}
+.why.yellow{background:var(--yel-soft)}
+.ack{font:inherit;font-size:13px;flex:none;padding:3px 10px;border-radius:99px;border:1px solid var(--red);color:var(--red);background:transparent;cursor:pointer;white-space:nowrap}
+.ack.done{border-color:var(--ok);color:var(--ok);cursor:default}
+.gap{direction:ltr;text-align:left;font-family:"Assistant",sans-serif;font-size:12.5px;color:var(--muted);padding:2px 14px}
+.blocks-zone{border:1.5px dashed var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.blocks-zone .lbl{font-size:13px;color:var(--muted)}
+.blocks-zone.over{border-style:solid;border-color:var(--model)}
+.blk{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:14px;padding:6px 10px;border-radius:8px;background:var(--sunk);border:1px dashed var(--line)}
+.blk .nm{direction:ltr;font-family:"JetBrains Mono",monospace;font-size:12.5px}
+.blk .ct{color:var(--muted)}
+
+/* agent */
+.chat{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;padding-inline-end:2px}
+.msg{background:var(--model-soft);border-radius:12px;border-start-start-radius:4px;padding:8px 12px;font-size:15px;max-width:95%}
+.msg.new{animation:pop .25s ease-out}
+@keyframes pop{from{transform:translateY(4px);opacity:.4}to{transform:none;opacity:1}}
+.say{display:flex;gap:8px}
+.say input{flex:1;font:inherit;font-size:14px;padding:7px 10px;border-radius:9px;border:1px solid var(--line);background:var(--sunk);color:var(--muted)}
+.sect{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.03em;margin-top:4px}
+.pieces{display:flex;flex-direction:column;gap:8px}
+.piece{border:1px solid var(--line);border-radius:10px;padding:9px 12px;background:var(--surface);display:flex;flex-direction:column;gap:2px;cursor:grab;user-select:none}
+.piece[aria-disabled="true"]{cursor:not-allowed;opacity:.45}
+.piece.used{opacity:.35;cursor:default}
+.piece.hot{border-color:var(--model);box-shadow:var(--shadow)}
+.piece .r1{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.piece .nm{direction:ltr;font-family:"JetBrains Mono",monospace;font-size:13px}
+.tag{font-size:12px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.tag.code{border-color:var(--red);color:var(--red)}
+.piece .d{font-size:14px;color:var(--muted)}
+.piece .acts{display:flex;gap:6px;margin-top:4px}
+.piece .acts .btn,.placed-hd .btn{font-size:13px;padding:3px 10px}
+.piece.extra{cursor:grab}
+.hd-r{display:flex;align-items:center;gap:8px}
+.blocks-src{display:flex;flex-wrap:wrap;gap:6px}
+.chip{direction:ltr;font-family:"JetBrains Mono",monospace;font-size:12px;padding:4px 9px;border-radius:99px;border:1px dashed var(--line);background:var(--sunk);cursor:grab;color:var(--ink)}
+.chip.used{opacity:.35;cursor:default}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.lg{width:14px;height:10px;border-radius:2px}
+.done-banner{border-radius:10px;padding:12px 14px;background:var(--model-soft);font-size:15px}
+
+@media (max-width:900px){
+  .app{padding-inline:16px}
+  .panes{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){.msg.new{animation:none}.meter .bar i{transition:none}}
+</style>
+
+<div class="app">
+  <div class="top">
+    <div class="crumbs">
+      <h1>radSeq · Chapter 1: The real data</h1>
+      <div class="sub">How the project reads RADIal. You assemble the chapter in the order the code runs, one part at a time.</div>
+    </div>
+    <div class="pace">
+      <div class="chapters" aria-label="Chapter 1 of 7"><span class="on"></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <div class="meter">
+        <div class="k">Red lines read</div>
+        <div class="bar"><i id="redbar" style="width:0"></i></div>
+        <div class="v" id="redv">0 of 7 · about 15 min</div>
+      </div>
+      <button class="btn" id="reset">Start over</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="lg" style="background:var(--red-soft);box-shadow:inset 3px 0 0 var(--red)"></i>Red: can change the result. Read every character</span>
+    <span><i class="lg" style="background:var(--yel-soft);box-shadow:inset 3px 0 0 var(--yel)"></i>Yellow: read only the path</span>
+    <span><i class="lg" style="background:var(--line);opacity:.5"></i>Dimmed: context only</span>
+    <span><i class="lg" style="border:1px solid var(--line)"></i>Unmarked code: optional reading</span>
+  </div>
+
+  <div class="panes">
+    <section class="pane" aria-label="Your window">
+      <div class="pane-hd">
+        <div class="who"><i class="dot" style="background:var(--ink)"></i><h2>Your window</h2></div>
+        <span class="file mono">src/radial.py</span>
+      </div>
+      <div class="pane-bd" id="dev"></div>
+    </section>
+
+    <section class="pane" aria-label="Agent">
+      <div class="pane-hd">
+        <div class="who"><i class="dot" style="background:var(--model)"></i><h2>Agent</h2></div>
+        <span class="file">agent's copy</span>
+      </div>
+      <div class="pane-bd">
+        <div class="chat" id="chat" aria-live="polite"></div>
+        <div class="say"><input id="say" placeholder="In this prototype the conversation is scripted" disabled aria-label="Message to the agent"></div>
+        <div class="sect">Code you need to see · drag into your window, in order</div>
+        <div class="pieces" id="pieces"></div>
+        <div class="sect">More code · no marked lines · drag any time</div>
+        <div class="pieces" id="xsrc"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+/* The real code of src/radial.py (radSeq), lines as they are in the file. */
+const PIECES = [
+  {id:"read_labels", d:"Reads the label file and groups it by frame", start:21, lines:String.raw`def read_labels(root=DEFAULT_ROOT):
+    """Valid label rows grouped by frame. Rows with radar_R_m < 0 are dropped."""
+    by_frame = collections.defaultdict(list)
+    for r in csv.DictReader(open(os.path.join(root, "labels.csv"))):
+        if float(r["radar_R_m"]) < 0:
+            continue
+        by_frame[int(r["numSample"])].append(r)
+    return by_frame`,
+   marks:{24:["yellow","The label file, in the RADIal folder on the HPC."],
+          25:["red","Rows with range -1 are invalid labels. Without this line, vehicles at negative range would get in."]},
+   say:"One red line here: rows with range -1 are dropped. Read it and mark it as read."},
+  {id:"power_map", d:"A frame's FFT file → a Range-Doppler map in dB", start:114, lines:String.raw`def power_map(sample, root=DEFAULT_ROOT, channels=None):
+    """RD power in dB, summed over receive channels (non-coherent looks)."""
+    x = np.load(os.path.join(root, "radar_FFT", f"fft_{sample:06d}.npy"))
+    if channels is not None:
+        x = x[..., :channels]
+    return 10 * np.log10((np.abs(x) ** 2).sum(axis=-1) + 1e-12)`,
+   marks:{116:["yellow","One file per frame: (512, 256, 16) complex values, named by the six-digit frame number."],
+          119:["red","Power summed over the 16 receive antennas, then dB. This is the scale the whole project works in, and the simulator must do exactly the same."]},
+   say:"power_map turns an FFT file into a map. Its red line sets the scale for the whole project."},
+  {id:"targets", d:"Where each labelled vehicle sits on the map", start:127, lines:String.raw`def targets(sample, by_frame):
+    """(range_bin, doppler_bin) per labelled vehicle in a frame."""
+    out = []
+    for lab in by_frame.get(sample, []):
+        out.append((float(lab["radar_R_m"]) / DR_M,
+                    float(lab["radar_D_mps"]) % N_DOPPLER))
+    return out`,
+   marks:{131:["red","0.2 m per bin. Measured from the data, not taken from the documentation."],
+          132:["red","Despite its name, radar_D_mps holds a bin index, not a velocity. And it marks the first of the 12 DDMA copies."]},
+   say:"Two red lines. The second one bites: the column is named like a velocity but holds a bin index."},
+  {id:"sequences", d:"Consecutive frames → sequences", start:88, lines:String.raw`def sequences(recs, seq_len=16, stride=None):
+    """Runs of ${"`"}seq_len${"`"} consecutive labelled frames within one recording.
+
+    Default stride is ${"`"}seq_len${"`"}, i.e. non-overlapping: overlapping windows from
+    one drive are near-duplicates and would inflate any count of "independent"
+    training data.
+    """
+    stride = stride or seq_len
+    out = []
+    for name, samples in recs.items():
+        run = [samples[0]]
+        for prev, cur in zip(samples, samples[1:]):
+            if cur == prev + 1:
+                run.append(cur)
+            else:
+                out += _windows(name, run, seq_len, stride)
+                run = [cur]
+        out += _windows(name, run, seq_len, stride)
+    return out`,
+   marks:{95:["red","Non-overlapping windows: overlapping windows from one drive are near-duplicates. This is why there are only 387 training sequences."],
+          100:["red","Consecutive here means consecutive frame numbers. The assumption is that consecutive numbers are 0.2 s apart. It has not been checked."]},
+   say:"This decides how much real data you have. Both red lines are decisions, and one is an unchecked assumption."},
+  {id:"split_recordings", d:"Split into train / val / test by recording", start:39, gap:[41,55,"docstring: why split by recording (15 lines)"], lines:String.raw`def split_recordings(recs, test_frac=0.2, val_frac=0.1, seed="radseq-step3",
+                     seq_len=16):
+    weights = {name: sum(len(w[1]) // seq_len for w in
+                         _runs(name, recs[name], seq_len))
+               for name in recs}
+    total = sum(weights.values())
+    remaining = {"train": (1.0 - test_frac - val_frac) * total,
+                 "val": val_frac * total, "test": test_frac * total}
+    # Largest recording first: a 320-frame drive placed late cannot be
+    # balanced against, so it has to be assigned while every split is empty.
+    order = sorted(recs, key=lambda n: (-weights[n], hashlib.sha256(
+        f"{seed}/{n}".encode()).hexdigest()))
+    out = {k: [] for k in remaining}
+    for name in order:
+        pick = max(remaining, key=lambda k: (remaining[k], k))
+        out[pick].append(name)
+        remaining[pick] -= weights[name]
+    return {k: sorted(v) for k, v in out.items()}`,
+   marks:{68:["red","Each recording goes whole into one split, so the test does not measure memorisation. The split was saved once to data/radial/split.json, and that file is the source of truth, not this function."]},
+   say:"Last part: the split. Note that split.json is the source of truth, not this function."}
+];
+const EXTRAS = [
+  {id:"recordings", d:"Groups frames by recording name", start:31, marks:{}, lines:String.raw`def recordings(root=DEFAULT_ROOT):
+    by_frame = read_labels(root)
+    recs = collections.defaultdict(set)
+    for sample, labs in by_frame.items():
+        recs[labs[0]["dataset"]].add(sample)
+    return {k: sorted(v) for k, v in sorted(recs.items())}`},
+  {id:"load_sequence", d:"A list of frames → a (L, 512, 256) tensor in dB", start:122, marks:{}, lines:String.raw`def load_sequence(samples, root=DEFAULT_ROOT, channels=None):
+    return torch.from_numpy(
+        np.stack([power_map(s, root, channels) for s in samples])).float()`},
+  {id:"range_profile", d:"Median dB per range bin. Used in chapter 2", start:136, marks:{}, lines:String.raw`def range_profile(samples, root=DEFAULT_ROOT):
+    """Median dB per range bin: the receiver response the simulator is fitted to."""
+    m = np.stack([power_map(s, root) for s in samples])
+    return np.median(m, axis=(0, 2))`},
+  {id:"background_stats", d:"The statistics the simulator is fitted to. Used in chapter 2", start:143, marks:{}, lines:String.raw`def background_stats(maps):
+    """Scene-level statistics of RD maps (dB), used to compare sources.
+
+    They describe the background (level shape over range and Doppler, spread of
+    values) rather than targets, so they apply to any map, labelled or not.
+    """
+    m = np.asarray(maps)
+    prof_r = np.median(m, axis=(0, 2))
+    prof_d = np.median(m, axis=(0, 1))
+    lo, hi = np.percentile(m, (0.1, 99.9))
+    mid = np.median(prof_r[100:300])
+    return {
+        "dynamic range (0.1-99.9%)": float(hi - lo),
+        "range-profile spread": float(prof_r.max() - prof_r.min()),
+        "Doppler-profile spread": float(prof_d.max() - prof_d.min()),
+        "near range (0-4 m) vs mid": float(np.median(prof_r[:20]) - mid),
+        "far range (>98 m) vs mid": float(np.median(prof_r[490:]) - mid),
+    }`},
+  {id:"camera_image", d:"A frame's camera image. Display only", start:166, marks:{}, lines:String.raw`def camera_image(sample, root=DEFAULT_ROOT):
+    from PIL import Image
+    return np.asarray(Image.open(os.path.join(root, "camera", f"image_{sample:06d}.jpg")))`},
+  {id:"vehicles", d:"Vehicles in the camera and on the map. Display only", start:171, marks:{}, lines:String.raw`def vehicles(sample, by_frame):
+    """Labelled vehicles of one frame, in both views.
+
+    box: (x1, y1, x2, y2) in the stored camera image; range_bin / doppler_bin
+    in the RD map (doppler_bin is the Tx0 copy -- see scene_sim.DDMA_OFFSETS).
+    """
+    out = []
+    for lab in by_frame.get(sample, []):
+        box = tuple(float(lab[k]) * CAMERA_SCALE
+                    for k in ("x1_pix", "y1_pix", "x2_pix", "y2_pix"))
+        out.append({"box": box, "range_m": float(lab["radar_R_m"]),
+                    "range_bin": float(lab["radar_R_m"]) / DR_M,
+                    "doppler_bin": float(lab["radar_D_mps"]) % N_DOPPLER})
+    return out`}
+];
+const byId = id => PIECES.find(p=>p.id===id) || EXTRAS.find(p=>p.id===id);
+async function copyCode(id, btn){
+  const text = byId(id).lines;
+  try{ await navigator.clipboard.writeText(text); btn.textContent="Copied"; }
+  catch(e){
+    const r=document.createRange(); const el=document.querySelector(`[data-code="${id}"]`);
+    if(el){ r.selectNodeContents(el); const sel=getSelection(); sel.removeAllRanges(); sel.addRange(r); btn.textContent="Selected, press Ctrl+C"; }
+  }
+  setTimeout(()=>{btn.textContent="Copy"},1600);
+}
+const TOTAL_RED = PIECES.reduce((n,p)=>n+Object.values(p.marks).filter(m=>m[0]==="red").length,0);
+
+let S = {placed:0, acked:{}, blocks:[], chat:[]};
+try{ const s = JSON.parse(localStorage.getItem("regain-wb3")); if(s) S = s; }catch(e){}
+function save(){ try{ localStorage.setItem("regain-wb3", JSON.stringify(S)); }catch(e){} }
+
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const redsOf = p => Object.entries(p.marks).filter(([,m])=>m[0]==="red").map(([n])=>p.id+":"+n);
+const pieceDone = p => redsOf(p).every(k=>S.acked[k]);
+const nAcked = () => Object.keys(S.acked).length;
+
+function say(text){ S.chat.push(text); save(); }
+if(!S.chat.length){
+  say("This is chapter 1: how radSeq reads RADIal. I built the whole chapter in my copy. You assemble it in yours, in the order the code runs.");
+  say("Drag read_labels into your window. Code with no marked lines can be dragged or copied any time.");
+}
+
+function codeView(p){
+  const rows = p.lines.split("\n");
+  let out = "", no = p.start;
+  rows.forEach((t,i)=>{
+    if(p.gap && no===p.gap[0]){ out += `<div class="gap">… ${p.gap[2]}</div>`; no = p.gap[1]+1; }
+    const m = p.marks[no];
+    const cls = m ? m[0] : "dim";
+    out += `<div class="ln ${cls}"><span class="no">${no}</span><span class="tx">${esc(t)||" "}</span></div>`;
+    if(m){
+      const key = p.id+":"+no;
+      const btn = m[0]==="red"
+        ? (S.acked[key] ? `<span class="ack done">Read</span>` : `<button class="ack" data-k="${key}">Mark as read</button>`)
+        : "";
+      out += `<div class="why ${cls}"><span>${m[1]}</span>${btn}</div>`;
+    }
+    no++;
+  });
+  return `<div class="code" data-code="${p.id}">${out}</div>`;
+}
+
+function renderDev(){
+  const el = document.getElementById("dev");
+  let h = "";
+  PIECES.forEach((p,i)=>{
+    if(i < S.placed){
+      const nr = redsOf(p).length, na = redsOf(p).filter(k=>S.acked[k]).length;
+      h += `<div class="placed"><div class="placed-hd"><span class="nm mono">${p.id}</span>
+            <span class="hd-r"><span class="st ${na===nr?"done":""}">${na===nr?"Done":`${na} of ${nr} red`}</span><button class="btn" data-copy="${p.id}">Copy</button></span></div>${codeView(p)}</div>`;
+    } else if(i === S.placed){
+      const ready = i===0 || pieceDone(PIECES[i-1]);
+      h += `<div class="slot ${ready?"next":"locked"}" data-drop="${i}">${ready?`Drop here: <span class="mono">${p.id}</span>`:`<span class="mono">${p.id}</span> opens after you read the red lines above`}</div>`;
+    } else {
+      h += `<div class="slot locked"><span class="mono">${p.id}</span></div>`;
+    }
+  });
+  h += `<div class="blocks-zone" data-drop="blocks"><div class="lbl">More code</div>${
+        S.blocks.length ? S.blocks.map(n=>{const p=byId(n);return `<div class="placed"><div class="placed-hd"><span class="nm mono">${n}</span><span class="hd-r"><span class="st">${p.d}</span><button class="btn" data-copy="${n}">Copy</button></span></div>${codeView(p)}</div>`}).join("")
+        : `<div class="lbl" style="opacity:.7">Drag more code here from the agent</div>`}</div>`;
+  if(S.placed===PIECES.length && nAcked()===TOTAL_RED)
+    h += `<div class="done-banner">Chapter 1 done. You read all ${TOTAL_RED} red lines. Next: the simulator.</div>`;
+  el.innerHTML = h;
+  el.querySelectorAll(".ack[data-k]").forEach(b=>b.onclick=()=>ack(b.dataset.k));
+  el.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>copyCode(b.dataset.copy,b));
+  wireDrops();
+}
+
+function renderAgent(){
+  const ch = document.getElementById("chat");
+  ch.innerHTML = S.chat.map((m,i)=>`<div class="msg ${i===S.chat.length-1?"new":""}">${m}</div>`).join("");
+  ch.scrollTop = ch.scrollHeight;
+  const next = S.placed, ready = next<PIECES.length && (next===0 || pieceDone(PIECES[next-1]));
+  document.getElementById("pieces").innerHTML = PIECES.map((p,i)=>{
+    const used = i<S.placed, hot = i===next && ready, dis = !used && !hot;
+    const nr = redsOf(p).length;
+    return `<div class="piece ${used?"used":""} ${hot?"hot":""}" ${hot?'draggable="true" tabindex="0"':""} aria-disabled="${dis}" data-piece="${i}">
+      <div class="r1"><span class="nm">${p.id}</span><span class="tag code">code · ${nr} red</span></div>
+      <div class="d">${used?"In your window":p.d}</div>
+      <div class="acts">${hot?`<button class="btn" data-add="${i}">Add to my window</button>`:""}<button class="btn" data-copy="${p.id}">Copy</button></div>
+    </div>`;
+  }).join("");
+  document.getElementById("xsrc").innerHTML = EXTRAS.map(p=>{
+    const used = S.blocks.includes(p.id);
+    return `<div class="piece extra ${used?"used":""}" ${used?"":'draggable="true" tabindex="0"'} data-block="${p.id}">
+      <div class="r1"><span class="nm">${p.id}</span><span class="tag">code · unmarked</span></div>
+      <div class="d">${used?"In your window":p.d}</div>
+      <div class="acts">${used?"":`<button class="btn" data-addx="${p.id}">Add to my window</button>`}<button class="btn" data-copy="${p.id}">Copy</button></div>
+    </div>`;
+  }).join("");
+  document.querySelectorAll("[data-piece][draggable]").forEach(el=>{
+    el.ondragstart = e=>{ e.dataTransfer.setData("text/plain","piece:"+el.dataset.piece); };
+  });
+  document.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>place(+b.dataset.add));
+  document.querySelectorAll(".piece.extra[draggable]").forEach(el=>{
+    el.ondragstart = e=>{ e.dataTransfer.setData("text/plain","block:"+el.dataset.block); };
+  });
+  document.querySelectorAll("[data-addx]").forEach(b=>b.onclick=()=>addBlock(b.dataset.addx));
+  document.querySelectorAll(".pane [data-copy]").forEach(b=>{ if(!b.onclick) b.onclick=()=>copyCode(b.dataset.copy,b); });
+}
+
+function wireDrops(){
+  document.querySelectorAll("[data-drop]").forEach(z=>{
+    const accept = z.dataset.drop==="blocks" || z.classList.contains("next");
+    if(!accept) return;
+    z.ondragover = e=>{ e.preventDefault(); z.classList.add("over"); };
+    z.ondragleave = ()=>z.classList.remove("over");
+    z.ondrop = e=>{
+      e.preventDefault(); z.classList.remove("over");
+      const [kind,val] = e.dataTransfer.getData("text/plain").split(":");
+      if(kind==="piece" && z.dataset.drop!=="blocks") place(+val);
+      if(kind==="block") addBlock(val);
+    };
+  });
+}
+
+function place(i){
+  if(i!==S.placed) return;
+  S.placed++; say(PIECES[i].say); render();
+}
+function ack(k){
+  S.acked[k] = true;
+  const p = PIECES.find(p=>k.startsWith(p.id+":"));
+  if(pieceDone(p)){
+    const i = PIECES.indexOf(p);
+    if(i+1 < PIECES.length) say(`Good. Next: ${PIECES[i+1].id}. ${PIECES[i+1].d}.`);
+    else say(`That's all the parts in your window. ${S.blocks.length<EXTRAS.length?"Some unmarked code is left; reading it is optional.":"The chapter is complete."}`);
+  }
+  render();
+}
+function addBlock(n){
+  if(S.blocks.includes(n)) return;
+  S.blocks.push(n); save(); render();
+}
+function render(){
+  save();
+  const a = nAcked();
+  document.getElementById("redbar").style.width = (100*a/TOTAL_RED)+"%";
+  document.getElementById("redv").textContent = `${a} of ${TOTAL_RED} · about 15 min`;
+  renderDev(); renderAgent();
+}
+document.getElementById("reset").onclick = ()=>{ S={placed:0,acked:{},blocks:[],chat:[]};
+  say("This is chapter 1: how radSeq reads RADIal. I built the whole chapter in my copy. You assemble it in yours, in the order the code runs.");
+  say("Drag read_labels into your window. Code with no marked lines can be dragged or copied any time."); render(); };
+render();
+</script>

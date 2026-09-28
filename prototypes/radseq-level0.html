@@ -1,0 +1,336 @@
+<title>radSeq at a Glance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;600&family=Assistant:wght@400;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+:root{
+  --bg:#F2F5F7; --surface:#FFFFFF; --sunk:#F6F8FA; --ink:#15202A; --muted:#5A6874; --line:#D5DDE4;
+  --data:#0E7A89; --data-soft:#E1F1F3;
+  --model:#4250C0; --model-soft:#E7E9F8;
+  --exp:#A8691A; --exp-soft:#F6ECDD;
+  --shadow:0 1px 2px rgba(21,32,42,.06),0 4px 14px rgba(21,32,42,.06);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0F151B; --surface:#17212B; --sunk:#121A22; --ink:#E5ECF1; --muted:#95A3AF; --line:#2A3743;
+    --data:#4FC0CF; --data-soft:#16303A;
+    --model:#8C97F0; --model-soft:#212743;
+    --exp:#E0A552; --exp-soft:#352A1A;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0F151B; --surface:#17212B; --sunk:#121A22; --ink:#E5ECF1; --muted:#95A3AF; --line:#2A3743;
+  --data:#4FC0CF; --data-soft:#16303A;
+  --model:#8C97F0; --model-soft:#212743;
+  --exp:#E0A552; --exp-soft:#352A1A;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:"Assistant",Arial,sans-serif;font-size:16px;line-height:1.5}
+.app{max-width:1360px;margin:0 auto;padding-inline:20px;padding-block:28px 40px;display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:22px;align-items:start}
+h1,h2{font-family:"Rubik",Arial,sans-serif;font-weight:600;margin:0;text-wrap:balance}
+h1{font-size:28px;letter-spacing:-.01em}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.main{display:flex;flex-direction:column;gap:18px;min-width:0}
+.essence{margin:6px 0 0;color:var(--muted);max-width:68ch;font-size:17px}
+.eyebrow{font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:18px 18px 12px}
+.diagram .scroll{overflow-x:auto}
+.diagram svg{display:block;width:100%;min-width:720px;height:auto;color:var(--ink)}
+.blk{cursor:pointer}
+.blk rect.box{stroke:var(--line);stroke-width:1.5;transition:stroke .15s}
+.blk:hover rect.box{stroke:var(--muted)}
+.blk.sel rect.box{stroke:var(--ink);stroke-width:2.5}
+.blk:focus{outline:none}
+.blk:focus-visible rect.box{stroke:var(--model);stroke-width:3}
+.blk .t{font-family:"Rubik",sans-serif;font-weight:500;font-size:14.5px;fill:var(--ink)}
+.blk .s{font-size:12px;fill:var(--muted)}
+.edge{fill:none;stroke:currentColor;stroke-opacity:.55;stroke-width:1.5}
+.elab{font-size:11.5px;fill:var(--muted)}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13.5px;color:var(--muted);padding:8px 4px 0}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:13px;height:13px;border-radius:3px;border:1.5px solid var(--line)}
+
+.focus{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px}
+.focus .nm{font-family:"Rubik",sans-serif;font-weight:500}
+.focus .d{color:var(--muted);flex:1 1 320px}
+.focus .files{display:flex;gap:6px;flex-wrap:wrap}
+.focus .files span{font-family:"JetBrains Mono",monospace;font-size:12px;padding:2px 8px;border-radius:6px;background:var(--sunk);border:1px solid var(--line)}
+
+/* chat */
+.chat{position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px);background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);display:flex;flex-direction:column;height:calc(100vh - 56px);max-height:820px;min-height:480px}
+.chat-hd{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.chat-hd .dot{width:9px;height:9px;border-radius:50%;background:var(--model)}
+.chat-hd .ctx{margin-inline-start:auto;font-size:12.5px;color:var(--muted)}
+.msgs{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.m{max-width:92%;padding:9px 13px;border-radius:13px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15.5px}
+.m.a{background:var(--model-soft);border-start-start-radius:4px;align-self:flex-start}
+.m.u{background:var(--sunk);border:1px solid var(--line);border-start-end-radius:4px;align-self:flex-end}
+.m.note{align-self:center;background:none;color:var(--muted);font-size:13.5px;text-align:center}
+.m .about{display:block;font-size:12px;color:var(--muted);margin-bottom:2px}
+.m.thinking{color:var(--muted)}
+.sugg{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 10px}
+.sugg button{font:inherit;font-size:13.5px;padding:5px 11px;border-radius:99px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;text-align:start}
+.sugg button:hover{border-color:var(--model)}
+form.say{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
+form.say textarea{flex:1;font:inherit;font-size:15px;resize:none;padding:8px 11px;border-radius:10px;border:1px solid var(--line);background:var(--sunk);color:var(--ink);min-height:42px;max-height:140px}
+.btn{font:inherit;font-size:14.5px;padding:8px 14px;border-radius:10px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer}
+.btn.ghost{background:var(--surface);color:var(--ink);border-color:var(--line)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+button:focus-visible,textarea:focus-visible{outline:3px solid var(--model);outline-offset:2px}
+
+@media (max-width:980px){
+  .app{grid-template-columns:1fr;padding-inline:16px}
+  .chat{position:static;height:560px}
+}
+</style>
+
+<div class="app">
+  <div class="main">
+    <header>
+      <div class="eyebrow">Level 0 · the big picture</div>
+      <h1>radSeq</h1>
+      <p class="essence">A diffusion model (DiT) that generates sequences of radar Range-Doppler maps. The question: is a model pretrained on a simulator and fine-tuned on a little real data (RADIal) a better source of detector training data than the simulator itself?</p>
+    </header>
+
+    <section class="diagram" aria-label="How radSeq flows">
+      <div class="scroll">
+        <svg viewBox="0 0 920 246" role="img" aria-label="RADIal calibrates the scene simulator; simulated scenes are prepared into a cache; training fits the DiT model to them; the trained model is sampled and evaluated; its data and RADIal feed the final experiment, which is not built yet">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="currentColor" fill-opacity=".6"/>
+            </marker>
+          </defs>
+          <!-- edges -->
+          <path class="edge" d="M80 104V160" marker-end="url(#ah)"/>
+          <text class="elab" x="90" y="136">calibrates</text>
+          <path class="edge" d="M144 192H200" marker-end="url(#ah)"/>
+          <text class="elab" x="172" y="184" text-anchor="middle">scenes</text>
+          <path class="edge" d="M334 192H390" marker-end="url(#ah)"/>
+          <text class="elab" x="362" y="184" text-anchor="middle">batches</text>
+          <path class="edge" d="M460 104V160" marker-end="url(#ah)"/>
+          <text class="elab" x="470" y="136">learns</text>
+          <path class="edge" d="M524 192H580" marker-end="url(#ah)"/>
+          <text class="elab" x="552" y="184" text-anchor="middle">checkpoint</text>
+          <path class="edge" d="M714 192H770" marker-end="url(#ah)"/>
+          <text class="elab" x="742" y="184" text-anchor="middle">DiT data</text>
+          <path class="edge" d="M80 40V18H840V160" stroke-dasharray="4 4" marker-end="url(#ah)"/>
+          <text class="elab" x="620" y="12" text-anchor="middle">real sequences: fine-tune + test</text>
+          <!-- blocks -->
+          <g id="blocks"></g>
+        </svg>
+      </div>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--data-soft)"></i>data</span>
+        <span><i class="sw" style="background:var(--model-soft)"></i>model</span>
+        <span><i class="sw" style="background:var(--exp-soft);border-style:dashed"></i>not built yet</span>
+        <span>Click a block to talk about it.</span>
+      </div>
+    </section>
+
+    <section class="focus" id="focus" aria-live="polite"></section>
+  </div>
+
+  <aside class="chat" aria-label="Agent">
+    <div class="chat-hd"><i class="dot"></i><h2 style="font-size:16px">Agent</h2><span class="ctx" id="ctx"></span></div>
+    <div class="msgs" id="msgs"></div>
+    <div class="sugg" id="sugg"></div>
+    <form class="say" id="say">
+      <textarea id="box" rows="1" placeholder="Ask about the project…" aria-label="Message"></textarea>
+      <button class="btn" id="send" type="submit">Send</button>
+      <button class="btn ghost" id="stop" type="button" hidden>Stop</button>
+    </form>
+  </aside>
+</div>
+
+<script>
+const B = [
+  {id:"radial", x:16, y:40, t:"RADIal", s:"real radar · 91 drives", g:"data",
+   d:"Real recordings from a 77 GHz radar. Read into dB Range-Doppler maps with vehicle labels.",
+   files:["src/radial.py","data/radial/split.json"]},
+  {id:"sim", x:16, y:160, t:"Scene simulator", s:"physics → synthetic maps", g:"data",
+   d:"Builds a road scene and renders 8 radar frames. Two variants: engineer (not tuned) and fitted to RADIal.",
+   files:["src/scene_sim.py","src/radar_physics.py","scripts/fit_scene_simulator.py"]},
+  {id:"prep", x:206, y:160, t:"Prepare data", s:"6,000 seqs · normalise", g:"data",
+   d:"Renders 6,000 sequences per variant to disk, normalises them, and turns vehicle positions into condition maps.",
+   files:["scripts/build_scene_cache.py","src/scene_data.py","src/trajectory_condition.py"]},
+  {id:"model", x:396, y:40, t:"DiT model", s:"noisy maps → prediction", g:"model",
+   d:"Cuts each frame into 16×16 patches; attention over time, then over space; 12 blocks.",
+   files:["src/dit.py","src/patching.py"]},
+  {id:"train", x:396, y:160, t:"Training", s:"60k steps · on the HPC", g:"model",
+   d:"Adds noise to the maps and teaches the model to remove it. Started 21/9; status unknown from here.",
+   files:["src/diffusion.py","src/train.py","configs/pretrain_*.yaml"]},
+  {id:"eval", x:586, y:160, t:"Sample & evaluate", s:"30 steps · metrics", g:"model",
+   d:"Generates sequences from pure noise and compares them with the simulator.",
+   files:["src/sample.py","src/eval/","scripts/scene_dit_smoke.py"]},
+  {id:"exp", x:776, y:160, t:"The experiment", s:"arms A / B / D", g:"exp",
+   d:"Fine-tune on RADIal, then train a detector on real only (A), real + simulator (B), real + DiT (D). No code yet.",
+   files:[]}
+];
+const W=128, H=64;
+const FILL={data:"var(--data-soft)", model:"var(--model-soft)", exp:"var(--exp-soft)"};
+const ACC={data:"var(--data)", model:"var(--model)", exp:"var(--exp)"};
+
+let selected = null;
+function drawBlocks(){
+  document.getElementById("blocks").innerHTML = B.map(b=>`
+    <g class="blk ${selected===b.id?"sel":""}" data-id="${b.id}" tabindex="0" role="button" aria-label="${b.t}: ${b.s}">
+      <rect class="box" x="${b.x}" y="${b.y}" width="${W}" height="${H}" rx="10" style="fill:${FILL[b.g]}" ${b.g==="exp"?'stroke-dasharray="5 4"':""}/>
+      <rect x="${b.x}" y="${b.y+12}" width="3.5" height="${H-24}" rx="1.5" style="fill:${ACC[b.g]}"/>
+      <text class="t" x="${b.x+14}" y="${b.y+27}">${b.t}</text>
+      <text class="s" x="${b.x+14}" y="${b.y+46}">${b.s}</text>
+    </g>`).join("");
+  document.querySelectorAll(".blk").forEach(g=>{
+    g.onclick = ()=>select(g.dataset.id);
+    g.onkeydown = e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); select(g.dataset.id); } };
+  });
+}
+function drawFocus(){
+  const f = document.getElementById("focus");
+  const b = B.find(x=>x.id===selected);
+  if(!b){ f.innerHTML = `<span class="d">RADIal feeds two things: it calibrates the simulator now, and it will be the real data for fine-tuning and testing later. Everything the model learns so far comes from the simulator.</span>`; return; }
+  f.innerHTML = `<span class="nm">${b.t}</span><span class="d">${b.d}</span>
+    <span class="files">${b.files.map(x=>`<span>${x}</span>`).join("") || `<span>no files yet</span>`}</span>`;
+}
+function select(id){
+  selected = selected===id ? null : id;
+  drawBlocks(); drawFocus();
+  document.getElementById("ctx").textContent = selected ? "about: " + B.find(b=>b.id===selected).t : "";
+  renderSugg();
+}
+
+/* ---------------- agent ---------------- */
+const BRIEF = `You are the guide inside ReGain, a tool that helps a researcher get back into a project that AI agents built. The researcher is Ari; radSeq is Ari's own PhD project, built mostly by agents, so Ari understands the direction but not the details. This page is LEVEL 0: the big picture only.
+
+How to answer:
+- Short: 2-4 plain sentences unless Ari asks for more. No headings, no bullet lists unless asked.
+- Answer in the language Ari writes in.
+- Stay at the big-picture level. If the question needs code-level detail, give the one-line answer and offer to go deeper; name the file.
+- Only state what is in the facts below. If something is not there, say you don't know from what you have. Never invent numbers.
+- When a fact is uncertain or unchecked, say so.
+- Do not lecture; answer the question asked.
+
+FACTS ABOUT radSeq (checked against the code on 2026-09-26 unless marked):
+Essence (confirmed by Ari): a DiT that generates sequences of radar Range-Doppler maps; tests whether a DiT pretrained on a simulator and fine-tuned on a little real data (RADIal) is a better source of detector training data than the simulator itself.
+
+Flow, in the order the code runs:
+1. RADIal (src/radial.py): 91 real drives, 77 GHz radar, 12 Tx x 16 Rx. Each frame on disk is (512 range, 256 Doppler, 16 Rx) complex; power summed over the 16 Rx then dB. 0.2 m per range bin, frames 0.2 s apart. Split by whole recording (67 train / 9 val / 13 test recordings), pinned in data/radial/split.json. Only 219 independent 16-frame sequences exist, so the project moved to 8-frame sequences (387 train). Label column radar_D_mps is a Doppler BIN index despite its name; radar_P_db is linear power. Consecutive frame numbers are assumed to be 0.2 s apart (unchecked).
+2. Scene simulator (src/scene_sim.py): builds a road (city / highway / countryside), static scatterers, moving and parked vehicles; renders each frame with radar physics, 16 Rx, DDMA (every return appears 12 times across Doppler, 16 bins apart, with 4 empty slots), receiver filters and noise. Labels only MOVING vehicles; parked cars are background. Two variants: engineer (never tuned to RADIal, distance to real statistics 1.14) and fitted (knobs fitted to RADIal train recordings, distance 0.32). The notebook claims the sim matches the real range structure, but the engineer variant's far range is 11 dB too bright versus RADIal.
+3. Prepare data (scripts/build_scene_cache.py, src/scene_data.py, src/trajectory_condition.py): 6,000 train + 300 val sequences per variant, float16 on disk, normalised with that cache's own mean/std; vehicle positions become 2 condition-map channels (dropped 10% of the time).
+4. DiT model (src/dit.py): 16x16 patches (512 per frame, 4096 tokens per sequence), width 384, 12 blocks; each block does attention over time (same patch across the 8 frames), then attention over space (all patches in a frame), then an MLP. ~45M parameters at 64x64. The original proposal said time-only attention and overlapping patches; the working recipe changed both.
+5. Training (src/train.py, src/diffusion.py, configs/pretrain_engineer.yaml, pretrain_fitted.yaml): predicts v, cosine schedule with shift 16 (chosen because it beat shift 4 on dynamic range, 50 vs 42 dB, sim 57), batch 8, 80 epochs = 60,000 steps per variant, EMA 0.9999, runs on the university HPC via sbatch. Started 2026-09-21 21:39. Whether it finished is UNKNOWN from here.
+6. Sample and evaluate (src/sample.py, src/eval/): DDIM, 30 steps, classifier-free guidance on the vehicle condition.
+7. The experiment: fine-tune the pretrained DiT on RADIal, then train a detector with arm A (real only), B (real + simulator data), D (real + DiT data). NO CODE EXISTS for this yet.
+
+Earlier results (64x64 simple simulator): the DiT passes 4 of 4 fidelity checks against the simulator; a trajectory-conditioned version follows requested targets; generated data improved a detector by +0.040 mAP with scarce data, but the generator memorises (ratio 0.715, flagged). A 64x64 pilot of the full experiment was dropped after only one arm finished.
+
+Details that bite (most damaging first):
+1. Sim labels only moving vehicles; if RADIal labels also include stopped cars, the condition means different things in pretraining and fine-tuning. Unchecked.
+2. Normalisation stats come from each cache; fine-tuning on real data must choose sim or real stats, which silently shifts the dB scale.
+3. Engineer sim far range 11 dB too bright versus real.
+4. RADIal label columns misnamed (bins, linear power).
+5. The training log prints a "smooth" loss, but its weight is 0; it does nothing.
+6. dit.py's docstring still describes the old time-only model.
+7. EMA 0.9999 caused an earlier invalid pilot; fine at 60k steps, wrong for short fine-tunes.
+8. The fitted sim's surface_incidence_power knob sits at its lower bound (0.0).
+
+Docs that are stale: the notebook and README still say the recipe check is "running"; it finished 2026-09-21.`;
+
+const turns = [];
+let sample = null, ctl = null, busy = false;
+const msgs = document.getElementById("msgs");
+
+function bubble(cls, text, about){
+  const el = document.createElement("div");
+  el.className = "m " + cls;
+  if(about){ const a=document.createElement("span"); a.className="about"; a.textContent="about: "+about; el.append(a); }
+  const t = document.createElement("span"); t.textContent = text; el.append(t);
+  msgs.append(el); msgs.scrollTop = msgs.scrollHeight;
+  return t;
+}
+bubble("a","This is radSeq at a glance. Ask me anything about it, or click a block and ask about that part.");
+
+const GENERAL = ["What does the model actually learn?","Why is there a simulator at all?","Where is the project stuck right now?"];
+const PER = {
+  radial:["Why only 387 training sequences?","What is odd about the labels?"],
+  sim:["What's the difference between the two variants?","How close is it to real data?"],
+  prep:["What is a condition map?","Why does normalisation matter here?"],
+  model:["What do time and space attention each do?","What changed from the original proposal?"],
+  train:["How do I know if training finished?","Why shift 16?"],
+  eval:["How is a generated sequence judged?"],
+  exp:["What's missing to run the experiment?","What result would kill the idea?"]
+};
+function renderSugg(){
+  const list = selected ? PER[selected] : GENERAL;
+  const el = document.getElementById("sugg");
+  el.innerHTML = "";
+  if(sample===false) return;
+  list.forEach(q=>{ const b=document.createElement("button"); b.type="button"; b.textContent=q; b.onclick=()=>ask(q); el.append(b); });
+}
+renderSugg();
+
+const COPY = {
+  not_granted:"Chat is off: using Claude from this page was not allowed.",
+  sampling_disabled:"Chat is not available for this account.",
+  rate_limited:"Too many questions at once. Try again in a minute.",
+  session_expired:"Please sign in again, then ask.",
+  refused:"I can't answer that one. Try asking it differently.",
+  empty_completion:"No answer came back. Try a shorter question."
+};
+const OFF = new Set(["not_granted","sampling_disabled","not_declared","capability_disabled","capability_removed"]);
+
+async function ask(q){
+  q = q.trim();
+  if(!q || busy) return;
+  if(!sample){ bubble("note","The agent needs this page open in Claude to answer."); return; }
+  const about = selected ? B.find(b=>b.id===selected).t : null;
+  bubble("u", q, about);
+  turns.push({role:"user", content: about ? `[Ari has the "${about}" block selected]\n${q}` : q});
+  while(turns.length > 16) turns.shift();
+  if(turns[0].role !== "user") turns.shift();
+  const out = bubble("a thinking","Thinking…");
+  setBusy(true);
+  ctl = new AbortController();
+  try{
+    const {text, truncated} = await sample([{role:"user", content:BRIEF}, ...turns], {
+      cache:false, signal:ctl.signal,
+      onText:({text})=>{ out.parentElement.classList.remove("thinking"); out.textContent = text; msgs.scrollTop = msgs.scrollHeight; }
+    });
+    turns.push({role:"assistant", content:text});
+    if(truncated) bubble("note","The answer was cut short.");
+  }catch(e){
+    out.parentElement.classList.remove("thinking");
+    out.textContent = e.text || "";
+    if(!e.text) out.parentElement.remove();
+    turns.pop();
+    if(e.code !== "cancelled") bubble("note", COPY[e.code] || "Something went wrong. Try again.");
+    if(OFF.has(e.code)){ sample = false; disableChat(); }
+  }finally{ setBusy(false); }
+}
+function setBusy(v){
+  busy = v;
+  document.getElementById("send").hidden = v;
+  document.getElementById("stop").hidden = !v;
+  document.querySelectorAll(".sugg button").forEach(b=>b.disabled=v);
+}
+function disableChat(){
+  document.getElementById("box").disabled = true;
+  document.getElementById("send").disabled = true;
+  renderSugg();
+}
+document.getElementById("stop").onclick = ()=>ctl?.abort();
+const box = document.getElementById("box");
+document.getElementById("say").addEventListener("submit", e=>{ e.preventDefault(); const q=box.value; box.value=""; ask(q); });
+box.addEventListener("keydown", e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); document.getElementById("say").requestSubmit(); } });
+
+drawBlocks(); drawFocus();
+(async ()=>{
+  try{ sample = window.claude ? await window.claude.use("sample") : null; }catch(e){ sample = null; }
+  if(!sample){ sample = false; bubble("note","Open this page in Claude to chat with the agent."); disableChat(); }
+})();
+</script>

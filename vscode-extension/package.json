@@ -1,0 +1,21 @@
+{
+  "name": "regain",
+  "displayName": "ReGain",
+  "description": "Opens a project's .regain pages as interactive views inside VS Code.",
+  "version": "0.0.1",
+  "publisher": "arigra",
+  "license": "UNLICENSED",
+  "engines": {"vscode": "^1.90.0"},
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "regain.page",
+        "displayName": "ReGain page",
+        "selector": [{"filenamePattern": "**/.regain/*.html"}],
+        "priority": "default"
+      }
+    ]
+  }
+}
