@@ -1,11 +1,13 @@
 {
   "name": "regain",
   "displayName": "ReGain",
-  "description": "Opens a project's .regain pages as interactive views inside VS Code.",
-  "version": "0.0.1",
+  "description": "Opens a project's .regain pages inside VS Code: interactive overview pages, and notebook-style pages built from real .py files.",
+  "version": "0.1.0",
   "publisher": "arigra",
   "license": "UNLICENSED",
-  "engines": {"vscode": "^1.90.0"},
+  "engines": {
+    "vscode": "^1.90.0"
+  },
   "main": "./extension.js",
   "activationEvents": [],
   "contributes": {
@@ -13,9 +15,39 @@
       {
         "viewType": "regain.page",
         "displayName": "ReGain page",
-        "selector": [{"filenamePattern": "**/.regain/*.html"}],
+        "selector": [
+          {
+            "filenamePattern": "**/.regain/*.html"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "regain.notebook",
+        "displayName": "ReGain notebook",
+        "selector": [
+          {
+            "filenamePattern": "*.regain.md"
+          }
+        ],
         "priority": "default"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "ReGain",
+      "properties": {
+        "regain.python": {
+          "type": "string",
+          "default": "",
+          "description": "Python used for the kernel. Empty: the interpreter selected in the Python extension, else python3. It needs jupyter_client and ipykernel."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node test/format.test.js && node test/view.test.js && node test/kernel.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
   }
 }

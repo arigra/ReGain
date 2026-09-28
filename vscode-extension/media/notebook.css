@@ -1,0 +1,98 @@
+:root{
+  --bg:#F2F5F7; --surface:#FFFFFF; --sunk:#F6F8FA; --ink:#15202A; --muted:#5A6874; --line:#D5DDE4;
+  --file:#0E7A89; --file-soft:#E1F1F3;
+  --code:#4250C0; --code-soft:#E7E9F8;
+  --err:#C23B3B; --ok:#2E8B57;
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0F151B; --surface:#17212B; --sunk:#121A22; --ink:#E5ECF1; --muted:#95A3AF; --line:#2A3743;
+  --file:#4FC0CF; --file-soft:#16303A; --code:#8C97F0; --code-soft:#212743;
+  --err:#F07A7A; --ok:#6CCB94;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:"Assistant",var(--vscode-font-family),sans-serif;font-size:16px;line-height:1.5}
+.app{max-width:980px;margin:0 auto;padding:0 16px 80px}
+button{font:inherit;cursor:pointer}
+button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--code);outline-offset:2px}
+
+/* top bar */
+.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:12px 0 10px;margin-bottom:8px;background:var(--bg);border-bottom:1px solid var(--line)}
+.top .name{font-family:"Rubik",sans-serif;font-weight:600;font-size:18px;margin-inline-end:auto}
+.kstate{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.kstate i{width:8px;height:8px;border-radius:50%;background:var(--line)}
+.kstate.idle i{background:var(--ok)} .kstate.busy i,.kstate.starting i{background:#E0A552}
+.kstate.dead i{background:var(--err)}
+.tbtn{font-size:13px;padding:3px 10px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.tbtn:hover{border-color:var(--muted)}
+.picks{display:flex;gap:10px;font-size:13px;color:var(--muted)}
+.picks label{display:inline-flex;align-items:center;gap:5px;cursor:pointer}
+.picks input{width:20px;height:20px;padding:0;border:1px solid var(--line);border-radius:4px;background:none;cursor:pointer}
+.picks input::-webkit-color-swatch-wrapper{padding:2px}
+.picks input::-webkit-color-swatch{border:none;border-radius:2px}
+.banner{margin:10px 0;padding:8px 12px;border-radius:8px;border:1px solid var(--err);color:var(--err);white-space:pre-wrap;font-size:14px}
+
+/* blocks */
+.blk{position:relative;display:grid;grid-template-columns:52px minmax(0,1fr);gap:8px}
+.gut{font-family:"JetBrains Mono",monospace;font-size:12.5px;color:var(--muted);text-align:right;padding-top:9px}
+.tools{position:absolute;top:4px;inset-inline-end:6px;display:none;gap:2px;z-index:2}
+.blk:hover>.tools,.blk:focus-within>.tools{display:flex}
+.tools button{font-size:12px;width:24px;height:22px;border-radius:5px;border:1px solid var(--line);background:var(--surface);color:var(--muted);padding:0}
+.tools button:hover{color:var(--ink);border-color:var(--muted)}
+
+.text .body{padding:14px 0 4px}
+.text .md h1{font-family:"Rubik",sans-serif;font-weight:600;font-size:26px;margin:4px 0}
+.text .md h2{font-family:"Rubik",sans-serif;font-weight:600;font-size:21px;margin:6px 0 2px}
+.text .md h3{font-family:"Rubik",sans-serif;font-weight:500;font-size:17px;margin:6px 0 2px}
+.text .md p{margin:4px 0;color:var(--muted)}
+.text .md ul{margin:4px 0;padding-inline-start:20px;color:var(--muted)}
+.text .md code{font-family:"JetBrains Mono",monospace;font-size:.88em;background:var(--sunk);padding:1px 5px;border-radius:4px}
+.text .md pre{background:var(--sunk);padding:8px 12px;border-radius:8px;overflow:auto}
+.text .md a{color:var(--code)}
+.text .md{cursor:text}
+.text textarea{width:100%;font-family:"JetBrains Mono",monospace;font-size:13px}
+
+.box{border-radius:10px;overflow:hidden;background:var(--cs);border:1px solid var(--c)}
+.file{--c:var(--file);--cs:var(--file-soft)}
+.code{--c:var(--code);--cs:var(--code-soft)}
+
+.bar{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;padding:6px 12px;background:var(--file)}
+.bar .dots{position:absolute;inset-inline-start:12px;display:flex;gap:6px}
+.bar .dots i{width:10px;height:10px;border-radius:50%;background:var(--surface);opacity:.55}
+.bar .path{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;color:var(--surface);background:none;border:none;padding:0}
+.bar .path:hover{text-decoration:underline}
+.bar .range{font-size:12px;color:var(--surface);opacity:.8}
+.bar .state{position:absolute;inset-inline-end:12px;font-size:12px;color:var(--surface);opacity:.8}
+
+.editor{display:flex;max-height:360px;overflow:auto}
+.code .editor{max-height:none}
+.nums{flex:none;margin:0;padding:8px 10px 8px 12px;text-align:right;color:var(--muted);opacity:.6;user-select:none;
+  font-family:"JetBrains Mono",monospace;font-size:12.8px;line-height:1.6}
+textarea.src{flex:1;display:block;width:100%;min-height:1.6em;resize:none;border:none;outline:none;background:none;color:var(--ink);
+  font-family:"JetBrains Mono",monospace;font-size:12.8px;line-height:1.6;padding:8px 14px 8px 4px;overflow:hidden;white-space:pre;tab-size:4}
+.code textarea.src{padding-inline-start:14px}
+.missing{padding:10px 14px;font-size:14px;color:var(--muted)}
+.missing button{margin-inline-start:8px}
+
+.runbtn{position:absolute;top:6px;inset-inline-start:-44px;width:30px;height:26px;border-radius:6px;border:1px solid var(--code);
+  background:var(--surface);color:var(--code);font-size:12px;padding:0}
+.code .gut{position:relative}
+.code .gut .count{display:block;padding-top:34px}
+.out{border-top:1px solid var(--c);background:var(--surface);padding:8px 14px;font-family:"JetBrains Mono",monospace;font-size:12.8px;
+  white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto}
+.out:empty{display:none}
+.out .stderr{color:#B7791F}
+.out .error{color:var(--err)}
+.out img{max-width:100%;display:block;background:#fff}
+.out .html{font-family:"Assistant",sans-serif;white-space:normal;overflow:auto}
+.out .html table{border-collapse:collapse;font-size:13px}
+.out .html td,.out .html th{border:1px solid var(--line);padding:2px 8px}
+.code.running .box{box-shadow:0 0 0 2px var(--c)}
+
+/* add bar */
+.add{display:flex;gap:6px;margin:0 0 0 60px;height:14px;opacity:0;transition:opacity .12s,height .12s;overflow:hidden}
+.add:hover,.add:focus-within,.add.last{opacity:1;height:34px;padding:4px 0}
+.add button{font-size:12.5px;padding:2px 11px;border-radius:99px;border:1px dashed var(--line);background:none;color:var(--muted)}
+.add button:hover{border-color:var(--muted);color:var(--ink)}
+.empty{margin:30px 0 10px 60px;color:var(--muted)}

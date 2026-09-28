@@ -2,6 +2,7 @@
 // page opens that file in the editor, at the line after "#L" if given.
 const vscode = require("vscode");
 const path = require("path");
+const {NotebookEditor} = require("./notebook/provider");
 
 // Runs inside the page: follows the VS Code theme and routes link clicks.
 const BRIDGE = `<script>
@@ -69,6 +70,9 @@ class PageEditor {
 function activate(context) {
   context.subscriptions.push(vscode.window.registerCustomEditorProvider(
     "regain.page", new PageEditor(),
+    {webviewOptions: {retainContextWhenHidden: true}}));
+  context.subscriptions.push(vscode.window.registerCustomEditorProvider(
+    "regain.notebook", new NotebookEditor(context),
     {webviewOptions: {retainContextWhenHidden: true}}));
 }
 
