@@ -23,6 +23,20 @@ const {Kernel} = require("../notebook/kernel");
   assert.ok(events.some(e => e.id === a && e.type === "stream" && e.text === "hi\n"));
   assert.ok(events.some(e => e.id === a && e.type === "result" && e.data["text/plain"] === "42"));
 
+  // an edited module is picked up without restarting the kernel
+  const fs = require("fs"), os = require("os"), path = require("path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "regain-"));
+  fs.writeFileSync(path.join(dir, "mod_ar.py"), "def f():\n    return 1\n");
+  const r1 = await k.exec(`import sys; sys.path.insert(0, ${JSON.stringify(dir)})\nfrom mod_ar import f\nf()`);
+  await doneOf(r1);
+  assert.ok(events.some(e => e.id === r1 && e.type === "result" && e.data["text/plain"] === "1"));
+  await new Promise(r => setTimeout(r, 1100));   // new mtime
+  fs.writeFileSync(path.join(dir, "mod_ar.py"), "def f():\n    return 2\n");
+  const r2 = await k.exec("f()");
+  await doneOf(r2);
+  assert.ok(events.some(e => e.id === r2 && e.type === "result" && e.data["text/plain"] === "2"), "autoreload");
+  assert.ok(events.some(e => e.type === "status" && e.state === "idle" && /^\d+\.\d+/.test(e.version)), "reports version");
+
   const b = await k.exec("undefined_name");
   await doneOf(b);
   assert.ok(events.some(e => e.id === b && e.type === "error" && e.ename === "NameError"));

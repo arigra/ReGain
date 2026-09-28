@@ -10,7 +10,9 @@
   const counts = new Map();       // block key -> execution count or "*"
   const idToKey = new Map();      // kernel request id -> block key
   let queue = [], running = null, stopOnError = false;
-  let kstate = {state: "off", python: ""}, banner = "";
+  let kstate = {state: "off", python: "", label: "", version: ""}, banner = "";
+  const dirty = new Set();        // file blocks edited here but not saved yet
+  const staleOnDisk = new Set();  // ...and changed on disk meanwhile
   let colors = {};
 
   // ---------- theme and colours ----------
@@ -148,9 +150,18 @@
     return h("div", {class: "blk text"}, h("div", {class: "gut"}), body, tools(i));
   }
 
+  function saveFile(p, range) {
+    if (!dirty.has(p) || !files[p]) return;
+    vscode.postMessage({type: "writeFile", path: p, range, text: files[p].text});
+    dirty.delete(p); staleOnDisk.delete(p);
+    const st = app.querySelector(`.blk.file[data-path="${CSS.escape(p)}"] .state`);
+    if (st) { st.textContent = "saved"; setTimeout(() => { if (!dirty.has(p)) st.textContent = ""; }, 1200); }
+  }
+  const fileState = p => staleOnDisk.has(p) ? "● unsaved · changed on disk" : dirty.has(p) ? "● unsaved" : "";
+
   function fileView(b, i) {
     const f = files[b.path];
-    const state = h("span", {class: "state"});
+    const state = h("span", {class: "state"}, fileState(b.path));
     const bar = h("div", {class: "bar"},
       h("span", {class: "dots"}, h("i"), h("i"), h("i")),
       h("button", {class: "path", title: "Open in the editor",
@@ -164,21 +175,29 @@
     } else {
       const text = f.text;
       let nums = lineNumbers(f.start, text.split("\n").length);
-      const write = debounce(v => {
-        vscode.postMessage({type: "writeFile", path: b.path, range: b.range, text: v});
-        state.textContent = "saved";
-        setTimeout(() => { state.textContent = ""; }, 1200);
-      }, 400);
-      const ta = sourceArea(text, {onInput: v => {
-        files[b.path] = {...files[b.path], text: v};
-        const n = lineNumbers(f.start, v.split("\n").length); nums.replaceWith(n); nums = n;
-        state.textContent = "…";
-        write(v);
-      }});
+      const ta = sourceArea(text, {
+        onInput: v => {
+          files[b.path] = {...files[b.path], text: v};
+          const n = lineNumbers(f.start, v.split("\n").length); nums.replaceWith(n); nums = n;
+          dirty.add(b.path);
+          state.textContent = fileState(b.path);
+        },
+        onKey: e => {
+          const save = (e.key === "Enter" && (e.shiftKey || e.metaKey || e.ctrlKey)) ||
+                       (e.key === "s" && (e.metaKey || e.ctrlKey));
+          if (!save) return;
+          e.preventDefault();
+          saveFile(b.path, b.range);
+          if (e.key === "Enter" && e.shiftKey) focusNext(i);
+          return true;
+        }});
       ta.dataset.path = b.path;
       body = h("div", {class: "editor"}, nums, ta);
     }
-    return h("div", {class: "blk file"}, h("div", {class: "gut"}), h("div", {class: "box"}, bar, body), tools(i));
+    return h("div", {class: "blk file", "data-path": b.path},
+      h("div", {class: "gut"},
+        h("button", {class: "runbtn", title: "Save the file (Shift+Enter)", onclick: () => saveFile(b.path, b.range)}, "▶")),
+      h("div", {class: "box"}, bar, body), tools(i));
   }
 
   function codeView(b, i) {
@@ -189,7 +208,7 @@
         if (e.key === "Enter" && (e.shiftKey || e.metaKey || e.ctrlKey)) {
           e.preventDefault();
           run([b.key]);
-          if (e.shiftKey) focusNextCode(i);
+          if (e.shiftKey) focusNext(i);
           return true;
         }
       }});
@@ -232,19 +251,24 @@
   }
 
   function topBar() {
-    const labels = {off: "kernel not started", starting: "starting…", idle: "idle", busy: "running", dead: "stopped"};
+    const labels = {off: "", starting: "starting…", idle: "", busy: "running", dead: "stopped"};
+    const kname = kstate.label
+      ? kstate.label + (kstate.version ? ` (Python ${kstate.version})` : "")
+      : "Select kernel";
     const pick = k => h("label", {},
       h("input", {type: "color", value: hex(getComputedStyle(root).getPropertyValue("--" + k).trim()),
         oninput: e => { colors[k] = e.target.value; applyColors(); saveColors(); }}),
       k === "file" ? "file" : "code");
     return h("div", {class: "top"},
       h("span", {class: "name"}, name),
-      h("span", {class: "kstate " + kstate.state, title: kstate.python || ""}, h("i"), labels[kstate.state] || kstate.state),
-      h("button", {class: "tbtn", onclick: () => run(blocks.filter(b => b.kind === "code").map(b => b.key), true)}, "▶ Run all"),
+      h("button", {class: "tbtn", onclick: runAll}, "▶ Run all"),
       h("button", {class: "tbtn", onclick: () => { queue = []; vscode.postMessage({type: "interrupt"}); }}, "■ Stop"),
       h("button", {class: "tbtn", onclick: () => { queue = []; counts.clear(); vscode.postMessage({type: "restart"}); render(); }}, "↻ Restart"),
       h("span", {class: "picks"}, pick("file"), pick("code"),
-        h("button", {class: "tbtn", onclick: () => { colors = {}; applyColors(); saveColors(); render(); }}, "reset")));
+        h("button", {class: "tbtn", onclick: () => { colors = {}; applyColors(); saveColors(); render(); }}, "reset")),
+      h("button", {class: "kpick kstate " + kstate.state, title: (kstate.python || "") + "\nClick to change the kernel",
+          onclick: () => vscode.postMessage({type: "pickKernel"})},
+        h("i"), kname, labels[kstate.state] ? h("span", {class: "kmuted"}, " · " + labels[kstate.state]) : null, " ▾"));
   }
   const saveColors = debounce(() => vscode.postMessage({type: "colors", colors}), 300);
 
@@ -269,15 +293,23 @@
     }
   }
 
-  function focusNextCode(i) {
-    const next = blocks.slice(i + 1).find(b => b.kind === "code");
+  function focusNext(i) {
+    const next = blocks.slice(i + 1).find(b => b.kind !== "text");
     if (!next) return;
     requestAnimationFrame(() => {
-      const ta = app.querySelector(`textarea[data-key="${next.key}"]`); if (ta) ta.focus();
+      const ta = next.kind === "code"
+        ? app.querySelector(`textarea[data-key="${next.key}"]`)
+        : app.querySelector(`textarea[data-path="${CSS.escape(next.path)}"]`);
+      if (ta) ta.focus();
     });
   }
 
   // ---------- running ----------
+  // Run all: every block in order. A file block "runs" by being saved.
+  function runAll() {
+    for (const b of blocks) if (b.kind === "file") saveFile(b.path, b.range);
+    run(blocks.filter(b => b.kind === "code").map(b => b.key), true);
+  }
   function run(keys, all = false) {
     queue.push(...keys);
     stopOnError = all;
@@ -309,14 +341,16 @@
     const key = ev.id != null ? idToKey.get(ev.id) : null;
     switch (ev.type) {
       case "status":
-        kstate = {state: ev.state, python: ev.python || kstate.python};
+        if (ev.python && ev.python !== kstate.python) kstate.version = "";
+        kstate = {...kstate, state: ev.state, python: ev.python || kstate.python,
+                  label: ev.label || kstate.label, version: ev.version || kstate.version};
         if (ev.state === "idle") banner = "";
         return render();
       case "fatal":
       case "warning":
         banner = ev.message;
         if (ev.type === "fatal") {
-          kstate = {state: "dead", python: kstate.python};
+          kstate = {...kstate, state: "dead"};
           if (running != null) counts.delete(running);
           queue = []; running = null;
         }
@@ -352,6 +386,7 @@
         return render();
       }
       case "file": {
+        if (dirty.has(m.path)) { staleOnDisk.add(m.path); return render(); }
         files[m.path] = m.content;
         const ta = app.querySelector(`textarea[data-path="${CSS.escape(m.path)}"]`);
         if (ta && document.activeElement === ta) return;   // don't fight the typist

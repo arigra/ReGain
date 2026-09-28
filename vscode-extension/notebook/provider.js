@@ -4,7 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const {parse, serialize} = require("./format");
-const {Kernel} = require("./kernel");
+const {Kernel, pythonFor} = require("./kernel");
 
 const COLORS_KEY = "regain.colors";
 
@@ -14,6 +14,27 @@ function projectRoot(uri) {
   if (path.basename(dir) === ".regain") return path.dirname(dir);
   const ws = vscode.workspace.getWorkspaceFolder(uri);
   return ws ? ws.uri.fsPath : dir;
+}
+
+// A short name for an interpreter: the conda env, the venv, or its folder.
+function envLabel(python) {
+  const parts = python.split(path.sep);
+  const envs = parts.lastIndexOf("envs");
+  if (envs >= 0 && parts[envs + 1]) return parts[envs + 1];
+  const bin = parts.lastIndexOf("bin");
+  return bin > 0 ? parts[bin - 1] : python;
+}
+
+async function knownPythons() {
+  try {
+    const ext = vscode.extensions.getExtension("ms-python.python");
+    if (!ext) return [];
+    const api = ext.isActive ? ext.exports : await ext.activate();
+    return api.environments.known.map(e => {
+      const v = e.version;
+      return {path: e.path, version: v && v.major != null ? `${v.major}.${v.minor}.${v.micro}` : ""};
+    });
+  } catch { return []; }
 }
 
 function readFileBlock(root, b) {
@@ -61,7 +82,35 @@ class NotebookEditor {
       await document.save();
     };
 
-    const kernel = new Kernel(root, document.uri, ev => post({type: "kernel", ev}));
+    const pyKey = "regain.python:" + document.uri.toString();
+    const kernel = new Kernel(root, document.uri, ev => {
+      if (ev.type === "status" && ev.python) ev.label = envLabel(ev.python);
+      post({type: "kernel", ev});
+    }, this.context.workspaceState.get(pyKey));
+    const announcePython = async () => {
+      const python = kernel.python || await pythonFor(document.uri);
+      post({type: "kernel", ev: {type: "status", state: "off", python, label: envLabel(python)}});
+    };
+
+    // Like Jupyter's "Select Kernel": pick the Python the kernel runs on.
+    const pickKernel = async () => {
+      const current = kernel.python || await pythonFor(document.uri);
+      const items = (await knownPythons()).map(p => ({
+        label: (p.path === current ? "$(check) " : "") + envLabel(p.path) + (p.version ? ` (Python ${p.version})` : ""),
+        description: p.path, path: p.path}));
+      items.sort((a, b) => (b.path === current) - (a.path === current));
+      items.push({label: "$(edit) Enter interpreter path…", path: null});
+      const pick = await vscode.window.showQuickPick(items, {
+        title: "Select kernel", placeHolder: "The Python needs jupyter_client and ipykernel", matchOnDescription: true});
+      if (!pick) return;
+      let python = pick.path;
+      if (!python) {
+        python = await vscode.window.showInputBox({prompt: "Path to a Python interpreter", value: current});
+        if (!python) return;
+      }
+      await this.context.workspaceState.update(pyKey, python);
+      kernel.setPython(python);
+    };
 
     const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, "**/*.{py,yaml,yml,json,toml,cfg,txt,sh,md}"));
     const onFile = uri => {
@@ -87,7 +136,8 @@ class NotebookEditor {
 
     panel.webview.onDidReceiveMessage(async m => {
       switch (m.type) {
-        case "ready": sendAll(); break;
+        case "ready": sendAll(); announcePython(); break;
+        case "pickKernel": await pickKernel(); break;
 
         case "setBlocks":             // edits, adds, deletes and moves from the view
           blocks = m.blocks;

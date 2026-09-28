@@ -13,9 +13,13 @@ Two views, both opened by clicking the file:
       from src.train import train
       ```
 
-  The kernel uses `regain.python`, else the interpreter the Python extension selected, else
-  `python3`. That Python needs `jupyter_client` and `ipykernel`. Edited files are reloaded
-  automatically (`%autoreload 2`).
+  ▶ next to a code block runs it; ▶ next to a file block saves the file (typing alone does
+  not). Shift+Enter does the same and moves on. Saved files are picked up by the kernel
+  without a restart (`%autoreload 2`).
+
+  The kernel button at the top right picks the Python, like Jupyter's "Select Kernel".
+  Default: `regain.python`, else the Python extension's interpreter, else `python3`. It
+  needs `jupyter_client` and `ipykernel`.
 
 To see either file as text: right-click → Open With… → Text Editor.
 
@@ -24,4 +28,4 @@ Build, test, install:
     npm install
     REGAIN_PYTHON=python3 npm test
     npx @vscode/vsce package --allow-missing-repository --skip-license
-    code --install-extension regain-0.1.0.vsix
+    code --install-extension regain-0.2.0.vsix

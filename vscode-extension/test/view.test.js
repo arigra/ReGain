@@ -29,7 +29,7 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   assert.ok($$(".missing")[0].textContent.includes("does not exist"));
 
   // run a code block and feed kernel events back
-  $(".runbtn").click();
+  $(".code .runbtn").click();
   const run = sent.find(m => m.type === "run");
   assert.strictEqual(run.code, "from src.data import f\nf()");
   assert.strictEqual($(".code .count").textContent, "[*]");
@@ -43,14 +43,14 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   assert.strictEqual($(".code .out").textContent, "ab\n1\n");
 
   // errors show the traceback without ANSI codes
-  $(".runbtn").click();
+  $(".code .runbtn").click();
   const run2 = sent.filter(m => m.type === "run")[1];
   send({type: "runStarted", id: 8, key: run2.key});
   send({type: "kernel", ev: {id: 8, type: "error", traceback: ["\x1b[0;31mNameError\x1b[0m: x"]}});
   send({type: "kernel", ev: {id: 8, type: "done", status: "error"}});
   assert.strictEqual($(".code .out .error").textContent, "NameError: x\n");
 
-  // editing a code block saves the page; editing a file block writes the file
+  // editing a code block saves the page; a file block is written only when run (saved)
   const codeTa = $(".code textarea"); codeTa.value = "print(2)"; codeTa.dispatchEvent(new w.Event("input"));
   const fileTa = $(".file textarea"); fileTa.value = "def f():\n    return 2\n"; fileTa.dispatchEvent(new w.Event("input"));
   assert.strictEqual($(".file .nums").textContent, "1\n2\n3");
@@ -58,8 +58,39 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   const set = sent.filter(m => m.type === "setBlocks").pop();
   assert.strictEqual(set.blocks[2].src, "print(2)");
   assert.ok(!("key" in set.blocks[2]), "keys stay in the view");
+  assert.ok(!sent.some(m => m.type === "writeFile"), "typing does not save the file");
+  assert.strictEqual($(".file .state").textContent, "● unsaved");
+
+  // a change on disk does not overwrite unsaved edits
+  send({type: "file", path: "src/data.py", content: {text: "from disk", start: 1}});
+  assert.strictEqual($(".file textarea").value, "def f():\n    return 2\n");
+  assert.strictEqual($(".file .state").textContent, "● unsaved · changed on disk");
+
+  // ▶ on a file block saves it
+  $(".file .runbtn").click();
   const wf = sent.find(m => m.type === "writeFile");
   assert.deepStrictEqual(wf, {type: "writeFile", path: "src/data.py", range: null, text: "def f():\n    return 2\n"});
+  assert.strictEqual($(".file .state").textContent, "saved");
+
+  // Shift+Enter in a file block saves too
+  const fta = $(".file textarea"); fta.value = "v3"; fta.dispatchEvent(new w.Event("input"));
+  fta.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Enter", shiftKey: true, bubbles: true}));
+  assert.strictEqual(sent.filter(m => m.type === "writeFile").pop().text, "v3");
+
+  // Run all saves unsaved files, then queues the code blocks
+  const fta2 = $(".file textarea"); fta2.value = "v4"; fta2.dispatchEvent(new w.Event("input"));
+  [...w.document.querySelectorAll(".tbtn")].find(b => b.textContent.includes("Run all")).click();
+  assert.strictEqual(sent.filter(m => m.type === "writeFile").pop().text, "v4");
+  const lastRun = sent.filter(m => m.type === "run").pop();
+  send({type: "runStarted", id: 9, key: lastRun.key});
+  send({type: "kernel", ev: {id: 9, type: "stream", name: "stdout", text: "kept\n"}});
+  send({type: "kernel", ev: {id: 9, type: "done", status: "ok"}});
+
+  // the kernel picker shows the interpreter and asks the extension to choose
+  send({type: "kernel", ev: {type: "status", state: "idle", python: "/a/anaconda3/bin/python", label: "anaconda3", version: "3.11.5"}});
+  assert.ok($(".kpick").textContent.includes("anaconda3 (Python 3.11.5)"));
+  $(".kpick").click();
+  assert.deepStrictEqual(sent.pop(), {type: "pickKernel"});
 
   // add a code block at the end, move it up, delete it
   $$(".add.last button")[2].click();
@@ -77,7 +108,7 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
     blocks: [{kind: "text", src: "## 1 · Data\nRead a `frame`."}, {kind: "file", path: "src/data.py", range: null},
              {kind: "code", src: "print(2)"}, {kind: "file", path: "src/new.py", range: null}],
     files: {"src/data.py": {text: "x", start: 1}, "src/new.py": {missing: true}}});
-  assert.ok($(".code .out").textContent.includes("NameError"));
+  assert.strictEqual($(".code .out").textContent, "kept\n");
   assert.strictEqual(w.document.documentElement.style.getPropertyValue("--file"), "#ff0000");
 
   // a fatal kernel error shows a banner and clears the queue

@@ -5,6 +5,7 @@ stdout. Requests: {"op": "exec", "id", "code"}, {"op": "interrupt"},
 {"op": "restart"}, {"op": "shutdown"}. Every exec ends with a "done" event.
 """
 import json
+import platform
 import queue
 import sys
 import threading
@@ -67,7 +68,7 @@ def main():
     except Exception as e:  # no ipykernel in this interpreter, etc.
         emit(type="fatal", message=f"{type(e).__name__}: {e}")
         return
-    emit(type="ready", python=sys.executable)
+    emit(type="ready", python=sys.executable, version=platform.python_version())
 
     requests = queue.Queue()
 
@@ -94,7 +95,7 @@ def main():
             k["kc"].stop_channels()
             k["km"].shutdown_kernel(now=True)
             k.update(zip(("km", "kc"), start(cwd)))
-            emit(type="ready", python=sys.executable)
+            emit(type="ready", python=sys.executable, version=platform.python_version())
         elif req["op"] == "shutdown":
             k["kc"].stop_channels()
             k["km"].shutdown_kernel(now=True)

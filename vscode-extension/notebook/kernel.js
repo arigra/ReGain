@@ -22,8 +22,9 @@ async function pythonFor(uri) {
 }
 
 class Kernel {
-  constructor(cwd, uri, onEvent) {
+  constructor(cwd, uri, onEvent, python) {
     this.cwd = cwd;
+    this.python = python || null;   // chosen in the kernel picker; else the default
     this.uri = uri;
     this.onEvent = onEvent;   // (event) => void, event.id is the request id
     this.proc = null;
@@ -34,7 +35,7 @@ class Kernel {
   start() {
     if (this.ready) return this.ready;
     this.ready = (async () => {
-      const python = await pythonFor(this.uri);
+      const python = this.python || await pythonFor(this.uri);
       this.onEvent({type: "status", state: "starting", python});
       const proc = cp.spawn(python, ["-u", BRIDGE, this.cwd], {cwd: this.cwd});
       this.proc = proc;
@@ -56,7 +57,7 @@ class Kernel {
         readline.createInterface({input: proc.stdout}).on("line", line => {
           let ev;
           try { ev = JSON.parse(line); } catch { return; }
-          if (ev.type === "ready") { this.onEvent({type: "status", state: "idle", python: ev.python}); resolve(); }
+          if (ev.type === "ready") { this.onEvent({type: "status", state: "idle", python: ev.python, version: ev.version}); resolve(); }
           else if (ev.type === "fatal") { this.onEvent(ev); proc.kill(); }
           else this.onEvent(ev);
         });
@@ -93,6 +94,13 @@ class Kernel {
     this.send({op: "restart"});
   }
 
+  // Switch interpreter: the running kernel stops, the next run starts the new one.
+  setPython(python) {
+    this.dispose();
+    this.python = python;
+    this.onEvent({type: "status", state: "off", python});
+  }
+
   dispose() {
     const proc = this.proc;
     this.reset();
@@ -102,4 +110,4 @@ class Kernel {
   }
 }
 
-module.exports = {Kernel};
+module.exports = {Kernel, pythonFor};
