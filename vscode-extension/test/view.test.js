@@ -70,7 +70,19 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   $(".file .runbtn").click();
   const wf = sent.find(m => m.type === "writeFile");
   assert.deepStrictEqual(wf, {type: "writeFile", path: "src/data.py", range: null, text: "def f():\n    return 2\n"});
-  assert.strictEqual($(".file .state").textContent, "saved");
+  assert.strictEqual($(".file .state").textContent, "");
+  assert.strictEqual($(".file .count").textContent, "[*]");
+  send({type: "saved", path: "src/data.py", ok: true, lines: 3});
+  assert.strictEqual($(".file .count").textContent, "[✓]");
+  assert.ok($(".file .out.saved").textContent.startsWith("✓ Saved src/data.py · 3 lines"));
+
+  // running an unchanged file still saves and shows a result
+  const before = sent.filter(m => m.type === "writeFile").length;
+  $(".file .runbtn").click();
+  assert.strictEqual(sent.filter(m => m.type === "writeFile").length, before + 1);
+  send({type: "saved", path: "src/data.py", ok: false, error: "EACCES"});
+  assert.strictEqual($(".file .count").textContent, "[!]");
+  assert.ok($(".file .out .error").textContent.includes("Could not save src/data.py: EACCES"));
 
   // Shift+Enter in a file block saves too
   const fta = $(".file textarea"); fta.value = "v3"; fta.dispatchEvent(new w.Event("input"));

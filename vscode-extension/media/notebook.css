@@ -92,6 +92,9 @@ textarea.src{flex:1;display:block;width:100%;min-height:1.6em;resize:none;border
 .out .html table{border-collapse:collapse;font-size:13px}
 .out .html td,.out .html th{border:1px solid var(--line);padding:2px 8px}
 .code.running .box{box-shadow:0 0 0 2px var(--c)}
+.out.saved{font-family:"Assistant",sans-serif;font-size:13.5px;color:var(--c)}
+.blk.flash .box{animation:flash .7s ease-out}
+@keyframes flash{from{box-shadow:0 0 0 4px var(--c)}to{box-shadow:0 0 0 0 transparent}}
 
 /* add bar */
 .add{display:flex;gap:6px;margin:0 0 0 60px;height:14px;opacity:0;transition:opacity .12s,height .12s;overflow:hidden}

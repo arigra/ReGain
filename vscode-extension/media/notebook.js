@@ -13,6 +13,7 @@
   let kstate = {state: "off", python: "", label: "", version: ""}, banner = "";
   const dirty = new Set();        // file blocks edited here but not saved yet
   const staleOnDisk = new Set();  // ...and changed on disk meanwhile
+  const fileRuns = new Map();     // path -> result of the last run (save) of that file
   let colors = {};
 
   // ---------- theme and colours ----------
@@ -150,12 +151,21 @@
     return h("div", {class: "blk text"}, h("div", {class: "gut"}), body, tools(i));
   }
 
+  // Running a file block saves it, changed or not; the extension reports back ("saved").
   function saveFile(p, range) {
-    if (!dirty.has(p) || !files[p]) return;
+    if (!files[p] || files[p].missing) return;
     vscode.postMessage({type: "writeFile", path: p, range, text: files[p].text});
     dirty.delete(p); staleOnDisk.delete(p);
-    const st = app.querySelector(`.blk.file[data-path="${CSS.escape(p)}"] .state`);
-    if (st) { st.textContent = "saved"; setTimeout(() => { if (!dirty.has(p)) st.textContent = ""; }, 1200); }
+    fileRuns.set(p, {state: "saving"});
+    const blk = app.querySelector(`.blk.file[data-path="${CSS.escape(p)}"]`);
+    if (blk) { blk.querySelector(".state").textContent = ""; blk.querySelector(".count").textContent = "[*]"; }
+  }
+  function fileResult(p) {
+    const r = fileRuns.get(p);
+    if (!r || r.state === "saving") return null;
+    return r.ok
+      ? h("div", {class: "out saved"}, `✓ Saved ${p} · ${r.lines} lines · ${r.time}`)
+      : h("div", {class: "out"}, h("span", {class: "error"}, `✗ Could not save ${p}: ${r.error}`));
   }
   const fileState = p => staleOnDisk.has(p) ? "● unsaved · changed on disk" : dirty.has(p) ? "● unsaved" : "";
 
@@ -196,8 +206,10 @@
     }
     return h("div", {class: "blk file", "data-path": b.path},
       h("div", {class: "gut"},
-        h("button", {class: "runbtn", title: "Save the file (Shift+Enter)", onclick: () => saveFile(b.path, b.range)}, "▶")),
-      h("div", {class: "box"}, bar, body), tools(i));
+        h("button", {class: "runbtn", title: "Save the file (Shift+Enter)", onclick: () => saveFile(b.path, b.range)}, "▶"),
+        h("span", {class: "count"}, !fileRuns.has(b.path) ? "[ ]" :
+          fileRuns.get(b.path).state === "saving" ? "[*]" : fileRuns.get(b.path).ok ? "[✓]" : "[!]")),
+      h("div", {class: "box"}, bar, body, fileResult(b.path)), tools(i));
   }
 
   function codeView(b, i) {
@@ -391,6 +403,14 @@
         const ta = app.querySelector(`textarea[data-path="${CSS.escape(m.path)}"]`);
         if (ta && document.activeElement === ta) return;   // don't fight the typist
         return render();
+      }
+      case "saved": {
+        const time = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+        fileRuns.set(m.path, {state: "done", ok: m.ok, lines: m.lines, error: m.error, time});
+        render();
+        const blk = app.querySelector(`.blk.file[data-path="${CSS.escape(m.path)}"]`);
+        if (blk) { blk.classList.add("flash"); setTimeout(() => blk.classList.remove("flash"), 700); }
+        return;
       }
       case "range":
         for (const b of blocks) if (b.kind === "file" && b.path === m.path && b.range &&

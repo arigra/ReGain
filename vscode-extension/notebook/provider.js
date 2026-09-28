@@ -145,25 +145,30 @@ class NotebookEditor {
           if (m.rerender) sendAll();
           break;
 
-        case "writeFile": {           // typing inside a file block
+        case "writeFile": {           // a file block was run: save it
           const b = {path: m.path, range: m.range};
           const full = path.resolve(root, m.path);
-          let text = m.text;
-          if (b.range) {
-            const lines = fs.readFileSync(full, "utf8").split("\n");
-            const n = m.text.split("\n").length;
-            lines.splice(b.range[0] - 1, b.range[1] - b.range[0] + 1, ...m.text.split("\n"));
-            text = lines.join("\n");
-            const end = b.range[0] + n - 1;
-            if (end !== b.range[1]) {   // keep the block's range covering the edited lines
-              for (const x of blocks) if (x.kind === "file" && x.path === m.path && x.range &&
-                  x.range[0] === b.range[0] && x.range[1] === b.range[1]) x.range = [b.range[0], end];
-              await commit();
-              post({type: "range", path: m.path, from: b.range, to: [b.range[0], end]});
+          try {
+            let text = m.text;
+            if (b.range) {
+              const lines = fs.readFileSync(full, "utf8").split("\n");
+              const n = m.text.split("\n").length;
+              lines.splice(b.range[0] - 1, b.range[1] - b.range[0] + 1, ...m.text.split("\n"));
+              text = lines.join("\n");
+              const end = b.range[0] + n - 1;
+              if (end !== b.range[1]) {   // keep the block's range covering the edited lines
+                for (const x of blocks) if (x.kind === "file" && x.path === m.path && x.range &&
+                    x.range[0] === b.range[0] && x.range[1] === b.range[1]) x.range = [b.range[0], end];
+                await commit();
+                post({type: "range", path: m.path, from: b.range, to: [b.range[0], end]});
+              }
             }
+            selfWrites.set(m.path, m.text);
+            fs.writeFileSync(full, text);
+            post({type: "saved", path: m.path, ok: true, lines: text.split("\n").length});
+          } catch (e) {
+            post({type: "saved", path: m.path, ok: false, error: e.message});
           }
-          selfWrites.set(m.path, m.text);
-          fs.writeFileSync(full, text);
           break;
         }
 
