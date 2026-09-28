@@ -61,7 +61,9 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   assert.ok(!sent.some(m => m.type === "writeFile"), "typing does not save the file");
   assert.strictEqual($(".file .state").textContent, "● Unsaved changes · ▶ to save");
   assert.ok($(".blk.file").classList.contains("dirty"), "unsaved file changes colour");
-  assert.strictEqual($(".unsaved").textContent, "● 1 unsaved file");
+  assert.strictEqual($(".unsaved").textContent, "● 1 unsaved file · 1 block changed since run");
+  assert.ok($(".blk.code").classList.contains("stale"), "edited code turns orange");
+  assert.ok(!$(".code .stale-note").hidden);
   assert.ok(!$(".unsaved").hidden);
 
   // a change on disk does not overwrite unsaved edits
@@ -82,6 +84,7 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   assert.deepStrictEqual(wf, {type: "writeFile", path: "src/data.py", range: null, text: "def f():\n    return 2\n"});
   assert.strictEqual($(".file .state").textContent, "");
   assert.ok(!$(".blk.file").classList.contains("dirty"));
+  assert.ok(!$(".blk.code").classList.contains("stale"), "the warning run cleared it");
   assert.ok($(".unsaved").hidden);
   assert.strictEqual($(".file .count").textContent, "[*]");
   send({type: "saved", path: "src/data.py", ok: true, lines: 3});
@@ -127,9 +130,23 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   $(".kpick").click();
   assert.deepStrictEqual(sent.pop(), {type: "pickKernel"});
 
+  // editing after a run marks it, running again clears it; a never-run block stays neutral
+  const cta = $(".code textarea"); cta.value = "print(3)"; cta.dispatchEvent(new w.Event("input"));
+  assert.ok($(".blk.code").classList.contains("stale"));
+  assert.strictEqual($(".unsaved").textContent, "● 1 block changed since run");
+  $(".code .runbtn").click();
+  assert.ok(!$(".blk.code").classList.contains("stale"));
+  const run4 = sent.filter(m => m.type === "run").pop();
+  send({type: "runStarted", id: 11, key: run4.key});
+  send({type: "kernel", ev: {id: 11, type: "stream", name: "stdout", text: "kept\n"}});
+  send({type: "kernel", ev: {id: 11, type: "done", status: "ok"}});
+
   // add a code block at the end, move it up, delete it
   $$(".add.last button")[2].click();
   assert.strictEqual($$(".blk").length, 5);
+  const fresh = $$(".blk.code").pop().querySelector("textarea");
+  fresh.value = "x = 1"; fresh.dispatchEvent(new w.Event("input"));
+  assert.ok(!$$(".blk.code").pop().classList.contains("stale"), "never run: not marked");
   $$(".blk")[4].querySelector('[title="Move up"]').click();
   assert.ok($$(".blk")[3].classList.contains("code"));
   $$(".blk")[3].querySelector('[title="Delete"]').click();
@@ -141,7 +158,7 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   // outputs survive a re-render with the same blocks
   send({type: "render", name: "demo.regain.md", root: "/r", colors: {file: "#ff0000"},
     blocks: [{kind: "text", src: "## 1 · Data\nRead a `frame`."}, {kind: "file", path: "src/data.py", range: null},
-             {kind: "code", src: "print(2)"}, {kind: "file", path: "src/new.py", range: null}],
+             {kind: "code", src: "print(3)"}, {kind: "file", path: "src/new.py", range: null}],
     files: {"src/data.py": {text: "x", start: 1}, "src/new.py": {missing: true}}});
   assert.strictEqual($(".code .out").textContent, "kept\n");
   assert.strictEqual(w.document.documentElement.style.getPropertyValue("--file"), "#ff0000");

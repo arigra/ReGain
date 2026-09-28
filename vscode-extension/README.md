@@ -28,4 +28,4 @@ Build, test, install:
     npm install
     REGAIN_PYTHON=python3 npm test
     npx @vscode/vsce package --allow-missing-repository --skip-license
-    code --install-extension regain-0.2.2.vsix
+    code --install-extension regain-0.2.3.vsix

@@ -14,6 +14,8 @@
   const dirty = new Set();        // file blocks edited here but not saved yet
   const staleOnDisk = new Set();  // ...and changed on disk meanwhile
   const fileRuns = new Map();     // path -> result of the last run (save) of that file
+  const ranSrc = new Map();       // code block key -> the source it last ran with
+  const isStale = b => ranSrc.has(b.key) && ranSrc.get(b.key) !== b.src;
   let colors = {};
 
   // ---------- theme and colours ----------
@@ -176,17 +178,29 @@
     if (on) dirty.add(p); else { dirty.delete(p); staleOnDisk.delete(p); }
     const blk = app.querySelector(`.blk.file[data-path="${CSS.escape(p)}"]`);
     if (blk) { blk.classList.toggle("dirty", on); blk.querySelector(".state").textContent = fileState(p); }
+    refreshBadge();
+  }
+  function setStale(b) {
+    const stale = isStale(b);
+    const blk = app.querySelector(`.blk.code[data-key="${b.key}"]`);
+    if (blk) { blk.classList.toggle("stale", stale); blk.querySelector(".stale-note").hidden = !stale; }
+    refreshBadge();
+  }
+  function refreshBadge() {
     const badge = app.querySelector(".unsaved");
     if (badge) badge.replaceWith(unsavedBadge());
   }
+  // "● 1 unsaved file · 2 blocks changed since run"; click goes to the first one.
   function unsavedBadge() {
-    const n = dirty.size;
-    return h("button", {class: "unsaved", hidden: !n, title: "Go to the first unsaved file",
+    const nf = dirty.size, nc = blocks.filter(b => b.kind === "code" && isStale(b)).length;
+    const parts = [];
+    if (nf) parts.push(`${nf} unsaved file${nf === 1 ? "" : "s"}`);
+    if (nc) parts.push(`${nc} block${nc === 1 ? "" : "s"} changed since run`);
+    return h("button", {class: "unsaved", hidden: !parts.length, title: "Go to the first one",
       onclick: () => {
-        const p = [...dirty][0];
-        const blk = p && app.querySelector(`.blk.file[data-path="${CSS.escape(p)}"]`);
+        const blk = app.querySelector(".blk.file.dirty, .blk.code.stale");
         if (blk) blk.scrollIntoView({block: "center", behavior: "smooth"});
-      }}, `● ${n} unsaved file${n === 1 ? "" : "s"}`);
+      }}, "● " + parts.join(" · "));
   }
 
   function fileView(b, i) {
@@ -234,7 +248,7 @@
   function codeView(b, i) {
     const c = counts.get(b.key);
     const ta = sourceArea(b.src, {
-      onInput: v => { b.src = v; push(); },
+      onInput: v => { b.src = v; push(); setStale(b); },
       onKey: e => {
         if (e.key === "Enter" && (e.shiftKey || e.metaKey || e.ctrlKey)) {
           e.preventDefault();
@@ -246,11 +260,14 @@
     ta.dataset.key = b.key;
     const output = h("div", {class: "out"});
     for (const o of out.get(b.key) || []) output.append(outputNode(o));
-    return h("div", {class: "blk code" + (running === b.key ? " running" : ""), "data-key": b.key},
+    const stale = isStale(b);
+    return h("div", {class: "blk code" + (running === b.key ? " running" : "") + (stale ? " stale" : ""), "data-key": b.key},
       h("div", {class: "gut"},
         h("button", {class: "runbtn", title: "Run (Shift+Enter)", onclick: () => run([b.key])}, "▶"),
         h("span", {class: "count"}, c == null ? "[ ]" : `[${c}]`)),
-      h("div", {class: "box"}, h("div", {class: "editor"}, ta), output),
+      h("div", {class: "box"}, h("div", {class: "editor"}, ta),
+        h("div", {class: "stale-note", hidden: !stale}, "● Changed since last run · the output below is from the previous version · ▶ to run"),
+        output),
       tools(i));
   }
 
@@ -355,6 +372,7 @@
     const b = blocks.find(x => x.key === key);
     if (!b) return next();
     running = key;
+    ranSrc.set(key, b.src);
     out.set(key, dirty.size ? [{kind: "warn", text:
       `⚠ Unsaved changes in ${[...dirty].join(", ")}. This run uses the saved version; ▶ the file to save it.\n`}] : []);
     counts.set(key, "*");

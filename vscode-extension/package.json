@@ -2,7 +2,7 @@
   "name": "regain",
   "displayName": "ReGain",
   "description": "Opens a project's .regain pages inside VS Code: interactive overview pages, and notebook-style pages built from real .py files.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "publisher": "arigra",
   "license": "UNLICENSED",
   "engines": {

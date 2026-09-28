@@ -93,7 +93,9 @@ textarea.src{flex:1;display:block;width:100%;min-height:1.6em;resize:none;border
 .out .html{font-family:"Assistant",sans-serif;white-space:normal;overflow:auto}
 .out .html table{border-collapse:collapse;font-size:13px}
 .out .html td,.out .html th{border:1px solid var(--line);padding:2px 8px}
-.blk.file.dirty{--c:var(--dirty);--cs:var(--dirty-soft)}
+.blk.file.dirty,.blk.code.stale{--c:var(--dirty);--cs:var(--dirty-soft)}
+.stale-note{padding:5px 14px;font-size:13px;font-weight:600;color:var(--surface);background:var(--dirty)}
+.stale-note[hidden]{display:none}
 .blk.file.dirty .state{opacity:1;font-weight:600}
 .unsaved{font-size:13px;padding:3px 10px;border-radius:6px;border:1px solid var(--dirty);background:var(--dirty-soft);color:var(--dirty);font-weight:600}
 .unsaved[hidden]{display:none}
