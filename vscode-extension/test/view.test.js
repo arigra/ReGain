@@ -227,6 +227,33 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   assert.ok($(".code .out").textContent.includes("hi"));
   assert.strictEqual($(".vars").textContent, "x ndarray (64, 32) float64");
 
+  // a visual panel on the right of file and code blocks
+  send({type: "render", name: "v.regain.md", root: "/r", colors: {}, outputs: {},
+    blocks: [{kind: "text", src: "## T"}, {kind: "file", path: "src/m.py", range: null, visual: ["visuals/m.svg"]},
+             {kind: "code", src: "y = 1"}],
+    files: {"src/m.py": {text: "a = 1", start: 1}},
+    visuals: {"visuals/m.svg": {exists: true, image: true, uri: "vsc://m.svg?v=1"}}});
+  assert.strictEqual($$(".vtab").length, 2, "file and code blocks only");
+  assert.ok($(".file .vtab").classList.contains("has") && !$(".code .vtab").classList.contains("has"));
+  $(".file .vtab").click();
+  assert.ok($(".blk.file").classList.contains("vopen"));
+  assert.strictEqual($(".vfig img").getAttribute("src"), "vsc://m.svg?v=1");
+  $(".vfig figcaption .tbtn").click();
+  assert.deepStrictEqual(sent.pop(), {type: "openVisual", path: "visuals/m.svg"});
+  const vbtns = [...w.document.querySelectorAll(".vhead .tbtn")];
+  vbtns[0].click();
+  assert.deepStrictEqual(sent.pop(), {type: "copyVisualRequest", index: 1});
+  vbtns[1].click();
+  assert.deepStrictEqual(sent.pop(), {type: "addVisual", index: 1});
+  [...w.document.querySelectorAll(".vfig figcaption .tbtn")].pop().click();   // unlink
+  const unlinked = sent.filter(m => m.type === "setBlocks").pop();
+  assert.ok(!("visual" in unlinked.blocks[1]), "unlinked, and the fence loses visual=");
+  assert.ok($(".vempty").textContent.startsWith("Nothing here yet"));
+  $(".code .vtab").click();
+  assert.strictEqual($$(".vpanel").length, 2);
+  $(".file .vtab").click();
+  assert.ok(!$(".blk.file").classList.contains("vopen"));
+
   // collapsing a heading hides what is under it, down to the next heading of its level
   send({type: "render", name: "c.regain.md", root: "/r", colors: {},
     blocks: [{kind: "text", src: "# Top\nintro"}, {kind: "text", src: "## A\nabout A"},

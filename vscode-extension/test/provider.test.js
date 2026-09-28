@@ -17,7 +17,10 @@ const fake = {
     onDidChangeTextDocument: f => { listeners.docChange.push(f); return {dispose() {}}; },
     applyEdit: async e => { doc.text = e.text; return true; },
   },
-  window: {}, extensions: {getExtension: () => null},
+  window: {showOpenDialog: async () => fake.picked, showInformationMessage: () => {}},
+  env: {clipboard: {writeText: async t => { fake.clipboard = t; }}},
+  commands: {executeCommand: async (...a) => { fake.command = a; }},
+  extensions: {getExtension: () => null},
 };
 const load = Module._load;
 Module._load = (req, ...rest) => req === "vscode" ? fake : load(req, ...rest);
@@ -39,7 +42,7 @@ const doc = {uri: fake.Uri.file(pagePath), text: pageText, get lineCount() { ret
   getText() { return this.text; }, save: async () => true};
 const posted = [];
 const panel = {viewColumn: 1, onDidDispose() {},
-  webview: {options: {}, cspSource: "x", asWebviewUri: u => u, postMessage: m => { posted.push(m); },
+  webview: {options: {}, cspSource: "x", asWebviewUri: u => ({toString: () => "vsc://" + u.fsPath}), postMessage: m => { posted.push(m); },
     onDidReceiveMessage: f => { listeners.msg = f; }}};
 const context = {extensionUri: {fsPath: __dirname}, globalState: {get: (k, d) => d, update: async () => {}},
   workspaceState: {get: k => state.get(k), update: async (k, v) => { state.set(k, v); }}};
@@ -80,6 +83,27 @@ const context = {extensionUri: {fsPath: __dirname}, globalState: {get: (k, d) =>
   assert.deepStrictEqual(Object.keys(kept), ["print(1)"]);
   await send({type: "ready"});
   assert.deepStrictEqual(Object.keys(last("render").outputs), ["print(1)"]);
+
+  // visuals: a request for the agent, an image added from disk, and serving it to the page
+  await send({type: "copyVisualRequest", index: 1});
+  assert.ok(fake.clipboard.includes("the file src/m.py"));
+  assert.ok(fake.clipboard.includes("Save it as .regain/visuals/m.svg"));
+  assert.ok(fake.clipboard.endsWith("```file src/m.py"), "ends with the fence to extend");
+  const pic = path.join(os.tmpdir(), "regain-pic.png");
+  fs.writeFileSync(pic, "png");
+  fake.picked = [{fsPath: pic}];
+  await send({type: "addVisual", index: 1});
+  assert.ok(fs.existsSync(path.join(root, ".regain/visuals/regain-pic.png")), "copied next to the page");
+  assert.ok(doc.text.includes("```file src/m.py visual=visuals/regain-pic.png"), "linked in the page");
+  const vis = last("render").visuals["visuals/regain-pic.png"];
+  assert.ok(vis.exists && vis.image && vis.uri.startsWith("vsc://" + path.join(root, ".regain/visuals/regain-pic.png") + "?v="));
+  await send({type: "addVisual", index: 1});   // same name again: kept apart
+  assert.ok(doc.text.includes("visual=visuals/regain-pic.png,visuals/regain-pic-2.png"));
+  await send({type: "copyVisualRequest", index: 1});
+  assert.ok(fake.clipboard.includes("visual=visuals/regain-pic.png,visuals/regain-pic-2.png"));
+  await send({type: "openVisual", path: "visuals/regain-pic.png"});
+  assert.strictEqual(fake.command[0], "vscode.open");
+  fs.rmSync(pic);
 
   fs.rmSync(root, {recursive: true});
   console.log("provider: all passed");

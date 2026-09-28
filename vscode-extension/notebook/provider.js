@@ -55,7 +55,8 @@ class NotebookEditor {
   resolveCustomTextEditor(document, panel) {
     const root = projectRoot(document.uri);
     const media = vscode.Uri.joinPath(this.context.extensionUri, "media");
-    panel.webview.options = {enableScripts: true, localResourceRoots: [media]};
+    const pageDir = path.dirname(document.uri.fsPath);
+    panel.webview.options = {enableScripts: true, localResourceRoots: [media, vscode.Uri.file(pageDir)]};
     panel.webview.html = this.html(panel.webview, media);
 
     let blocks = parse(document.getText());
@@ -121,7 +122,43 @@ class NotebookEditor {
       }, 500);
     };
 
-    const sendAll = () => post({type: "render", blocks, files: files(), root,
+    // Pictures that explain a block (visual= on its fence), relative to the page's folder.
+    const IMAGE = /\.(svg|png|jpe?g|gif|webp)$/i;
+    const visuals = () => {
+      const out = {};
+      for (const b of blocks) for (const v of b.visual || []) {
+        const full = path.resolve(pageDir, v);
+        const exists = fs.existsSync(full);
+        const stamp = exists ? fs.statSync(full).mtimeMs : 0;       // reload when it is redrawn
+        out[v] = {exists, image: IMAGE.test(v),
+          uri: exists ? panel.webview.asWebviewUri(vscode.Uri.file(full)).toString() + "?v=" + stamp : null};
+      }
+      return out;
+    };
+    const fence = b => serialize([b]).split("\n")[0];
+    const visualRequest = i => {
+      const b = blocks[i];
+      const pageRel = path.relative(root, document.uri.fsPath);
+      const dirRel = path.relative(root, pageDir);
+      const n = blocks.slice(0, i + 1).filter(x => x.kind === b.kind).length;
+      const base = b.kind === "file"
+        ? path.basename(b.path).replace(/\.[^.]+$/, "") + (b.range ? `-${b.range[0]}-${b.range[1]}` : "")
+        : path.basename(document.uri.fsPath).replace(/\.regain\.md$/, "") + "-block" + n;
+      let name = `visuals/${base}.svg`;
+      for (let k = 2; (b.visual || []).includes(name) || fs.existsSync(path.resolve(pageDir, name)); k++) name = `visuals/${base}-${k}.svg`;
+      const target = b.kind === "file"
+        ? `the file ${b.path}${b.range ? ` (lines ${b.range[0]}-${b.range[1]})` : ""}`
+        : `this code block from ${pageRel}:\n\n${b.src}\n`;
+      return [
+        `Make a visual that explains what ${target} does, so I can come back to it later or explain it to someone else.`,
+        `A clear diagram (the flow, what goes in and out, the shapes of the data) rather than a chart of made-up numbers. Mark anything you are not sure about.`,
+        `Save it as ${path.join(dirRel, name)} (SVG, readable on both light and dark backgrounds).`,
+        `Then link it in ${pageRel}: add visual=${name} to the end of this block's opening line:`,
+        fence(b),
+      ].join("\n");
+    };
+
+    const sendAll = () => post({type: "render", blocks, files: files(), root, visuals: visuals(),
       name: path.basename(document.uri.fsPath), outputs: savedOut,
       colors: this.context.globalState.get(COLORS_KEY, {})});
 
@@ -166,9 +203,10 @@ class NotebookEditor {
       kernel.setPython(python);
     };
 
-    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, "**/*.{py,yaml,yml,json,toml,cfg,txt,sh,md}"));
+    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, "**/*.{py,yaml,yml,json,toml,cfg,txt,sh,md,svg,png,jpg,jpeg,gif,webp}"));
     const onFile = uri => {
       if (uri.fsPath === bitesPath) { bites = loadBites(); return sendAll(); }
+      if (blocks.some(b => (b.visual || []).some(v => path.resolve(pageDir, v) === uri.fsPath))) return sendAll();
       const b = blocks.find(x => x.kind === "file" && path.resolve(root, x.path) === uri.fsPath);
       if (!b) return;
       const content = fileInfo(b);
@@ -241,6 +279,40 @@ class NotebookEditor {
           blocks.splice(m.at, 0, {kind: "file", path: rel, range: null});
           await commit();
           sendAll();
+          break;
+        }
+
+        case "addVisual": {           // pick pictures from disk; they are copied next to the page
+          const picked = await vscode.window.showOpenDialog({canSelectMany: true, openLabel: "Add",
+            filters: {Images: ["svg", "png", "jpg", "jpeg", "gif", "webp"]}});
+          const b = blocks[m.index];
+          if (!picked || !b) return;
+          fs.mkdirSync(path.join(pageDir, "visuals"), {recursive: true});
+          for (const u of picked) {
+            let name = "visuals/" + path.basename(u.fsPath);
+            if (path.resolve(u.fsPath) !== path.resolve(pageDir, name)) {
+              const ext = path.extname(name), stem = name.slice(0, -ext.length);
+              for (let k = 2; fs.existsSync(path.resolve(pageDir, name)); k++) name = `${stem}-${k}${ext}`;
+              fs.copyFileSync(u.fsPath, path.resolve(pageDir, name));
+            }
+            b.visual = [...(b.visual || []), name];
+          }
+          await commit();
+          sendAll();
+          break;
+        }
+
+        case "openVisual": {
+          const uri = vscode.Uri.file(path.resolve(pageDir, m.path));
+          if (m.external) await vscode.env.openExternal(uri);
+          else await vscode.commands.executeCommand("vscode.open", uri,
+            {viewColumn: panel.viewColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One});
+          break;
+        }
+
+        case "copyVisualRequest": {
+          await vscode.env.clipboard.writeText(visualRequest(m.index));
+          vscode.window.showInformationMessage("ReGain: request copied. Paste it to the agent in the side window.");
           break;
         }
 

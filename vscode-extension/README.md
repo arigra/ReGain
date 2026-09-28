@@ -31,6 +31,12 @@ Two views, both opened by clicking the file:
   - Outputs are kept in `<page>.regain.outputs.json` next to the page and shown again,
     marked as from an earlier session. Plots (matplotlib) show inline.
 
+  - A ▸ arrow on the right of each file and code block opens its visual panel: pictures
+    that explain the block, linked with `visual=visuals/x.svg` on the block's fence (paths
+    relative to the page). "Copy request for the agent" writes a ready request with where
+    to save and how to link; "Add image…" copies a picture from disk; "Open" shows it in
+    VS Code, ↗ in the system viewer.
+
 To see either file as text: right-click → Open With… → Text Editor.
 
 Build, test, install:
@@ -38,4 +44,4 @@ Build, test, install:
     npm install
     REGAIN_PYTHON=python3 npm test
     npx @vscode/vsce package --allow-missing-repository --skip-license
-    code --install-extension regain-0.3.0.vsix
+    code --install-extension regain-0.4.0.vsix

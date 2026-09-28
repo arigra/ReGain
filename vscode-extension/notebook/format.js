@@ -8,6 +8,9 @@
 //   from src.train import train
 //   ```
 //
+// Either fence may end with visual=a.svg,b.png: pictures that explain the
+// block, as paths relative to the page's folder.
+//
 // Everything else is text. A file block never holds a copy of the file.
 
 const OPEN = /^```(\S*)\s*(.*)$/;
@@ -30,13 +33,19 @@ function parse(text) {
     while (j < lines.length && !CLOSE.test(lines[j])) j++;
     if (j === lines.length) { prose.push(lines[i]); continue; }  // unclosed: leave as text
     flush();
+    const words = m[2].trim().split(/\s+/).filter(Boolean);
+    const vis = words.find(w => w.startsWith("visual="));
+    const rest = words.filter(w => w !== vis);
+    let b;
     if (kind === "code") {
-      blocks.push({kind, src: lines.slice(i + 1, j).join("\n")});
+      b = {kind, src: lines.slice(i + 1, j).join("\n")};
     } else {
-      const [path, range] = m[2].trim().split(/\s+/);
+      const [path, range] = rest;
       const r = range && range.match(/^(\d+)-(\d+)$/);
-      blocks.push({kind, path: path || "", range: r ? [Number(r[1]), Number(r[2])] : null});
+      b = {kind, path: path || "", range: r ? [Number(r[1]), Number(r[2])] : null};
     }
+    if (vis) b.visual = vis.slice(7).split(",").filter(Boolean);
+    blocks.push(b);
     i = j;
   }
   flush();
@@ -46,9 +55,10 @@ function parse(text) {
 function serialize(blocks) {
   return blocks.map(b => {
     if (b.kind === "text") return b.src;
-    if (b.kind === "code") return "```python\n" + b.src + "\n```";
+    const vis = b.visual && b.visual.length ? " visual=" + b.visual.join(",") : "";
+    if (b.kind === "code") return "```python" + vis + "\n" + b.src + "\n```";
     const range = b.range ? ` ${b.range[0]}-${b.range[1]}` : "";
-    return "```file " + b.path + range + "\n```";
+    return "```file " + b.path + range + vis + "\n```";
   }).join("\n\n") + "\n";
 }
 

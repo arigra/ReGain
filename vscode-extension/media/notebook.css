@@ -18,7 +18,7 @@
 }
 *{box-sizing:border-box}
 body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:"Assistant",var(--vscode-font-family),sans-serif;font-size:16px;line-height:1.5}
-.app{max-width:980px;margin:0 auto;padding:0 16px 80px}
+.app{max-width:1280px;margin:0 auto;padding:0 16px 80px}
 button{font:inherit;cursor:pointer}
 button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--code);outline-offset:2px}
 
@@ -43,9 +43,10 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px soli
 .banner{margin:10px 0;padding:8px 12px;border-radius:8px;border:1px solid var(--err);color:var(--err);white-space:pre-wrap;font-size:14px}
 
 /* blocks */
-.blk{position:relative;display:grid;grid-template-columns:52px minmax(0,1fr);gap:8px}
+.blk{position:relative;display:grid;grid-template-columns:52px minmax(0,1fr) 30px;gap:8px}
+.blk.vopen{grid-template-columns:52px minmax(0,1fr) minmax(300px,40%)}
 .gut{font-family:"JetBrains Mono",monospace;font-size:12.5px;color:var(--muted);text-align:right}
-.tools{position:absolute;top:4px;inset-inline-end:6px;display:none;gap:2px;z-index:2}
+.tools{position:absolute;top:4px;inset-inline-end:44px;display:none;gap:2px;z-index:2}
 .blk:hover>.tools,.blk:focus-within>.tools{display:flex}
 .tools button{font-size:12px;width:24px;height:22px;border-radius:5px;border:1px solid var(--line);background:var(--surface);color:var(--muted);padding:0}
 .tools button:hover{color:var(--ink);border-color:var(--muted)}
@@ -144,3 +145,21 @@ textarea.src.over::selection{background:color-mix(in srgb, var(--c) 30%, transpa
 .add button{font-size:12.5px;padding:2px 11px;border-radius:99px;border:1px dashed var(--line);background:none;color:var(--muted)}
 .add button:hover{border-color:var(--muted);color:var(--ink)}
 .empty{margin:30px 0 10px 60px;color:var(--muted)}
+
+/* visual panel, right of a block */
+.blk.vopen>.tools{inset-inline-end:calc(40% + 14px)}
+.side{display:flex;gap:8px;align-items:stretch;min-width:0}
+.vtab{flex:none;width:30px;min-height:44px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:13px;padding:0;position:relative}
+.vtab:hover{border-color:var(--muted);color:var(--ink)}
+.vtab.has{color:var(--ink);border-color:var(--muted)}
+.vtab.has::after{content:"";position:absolute;top:6px;left:50%;width:6px;height:6px;margin-left:-3px;border-radius:50%;background:var(--code)}
+.vpanel{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:10px 12px;display:flex;flex-direction:column;gap:10px;align-self:start}
+.vhead{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.vhead b{font-family:"Rubik",sans-serif;font-weight:500;margin-inline-end:auto}
+.vfig{margin:0;display:flex;flex-direction:column;gap:6px}
+.vfig img{display:block;max-width:100%;max-height:520px;object-fit:contain;border-radius:8px;border:1px solid var(--line);background:var(--sunk);cursor:zoom-in}
+.vfig figcaption{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.vname{margin-inline-end:auto;font-family:"JetBrains Mono",monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vmissing{padding:18px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);font-size:13px;text-align:center}
+.vempty{margin:0;color:var(--muted);font-size:13.5px}
+.tbtn[disabled]{opacity:.45;cursor:default}

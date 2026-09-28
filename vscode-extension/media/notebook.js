@@ -4,7 +4,8 @@
   const app = document.getElementById("app");
   const root = document.documentElement;
 
-  let name = "", blocks = [], files = {};
+  let name = "", blocks = [], files = {}, visuals = {};
+  const visualOpen = new Set();   // block keys whose visual panel is open
   let nextKey = 1;
   const out = new Map();          // block key -> [{kind, ...}]
   const counts = new Map();       // block key -> execution count or "*"
@@ -320,12 +321,49 @@
       ed.ta.dataset.path = b.path;
       body = ed;
     }
-    return h("div", {class: "blk file" + (dirty.has(b.path) ? " dirty" : ""), "data-path": b.path},
+    return h("div", {class: "blk file" + (dirty.has(b.path) ? " dirty" : "") + (visualOpen.has(b.key) ? " vopen" : ""), "data-path": b.path},
       h("div", {class: "gut"},
         h("button", {class: "runbtn", title: "Save the file (Shift+Enter)", onclick: () => saveFile(b.path, b.range)}, "▶"),
         h("span", {class: "count"}, !fileRuns.has(b.path) ? "[ ]" :
           fileRuns.get(b.path).state === "saving" ? "[*]" : fileRuns.get(b.path).ok ? "[✓]" : "[!]")),
-      h("div", {class: "box"}, bar, body, fileNotes(b), fileResult(b.path)), tools(i));
+      h("div", {class: "box"}, bar, body, fileNotes(b), fileResult(b.path)), sideView(b, i), tools(i));
+  }
+
+  // To the right of a file or code block: an arrow that opens its visual panel.
+  function sideView(b, i) {
+    const vis = b.visual || [];
+    const open = visualOpen.has(b.key);
+    const toggle = () => { if (open) visualOpen.delete(b.key); else visualOpen.add(b.key); render(); };
+    const tab = h("button", {class: "vtab" + (vis.length ? " has" : ""), onclick: toggle,
+      title: open ? "Hide the visual" : vis.length ? `Show the visual (${vis.length})` : "Add a visual that explains this block",
+      "aria-expanded": open ? "true" : "false"}, open ? "◂" : "▸");
+    if (!open) return h("div", {class: "side"}, tab);
+    const items = vis.map(v => {
+      const info = visuals[v] || {};
+      const pic = !info.exists
+        ? h("div", {class: "vmissing"}, "Not there yet: " + v)
+        : info.image ? h("img", {src: info.uri, alt: v, title: "Open", onclick: () => vscode.postMessage({type: "openVisual", path: v})})
+        : h("div", {class: "vmissing"}, v);
+      return h("figure", {class: "vfig"}, pic,
+        h("figcaption", {},
+          h("span", {class: "vname"}, v.split("/").pop()),
+          h("button", {class: "tbtn", disabled: !info.exists, onclick: () => vscode.postMessage({type: "openVisual", path: v})}, "Open"),
+          h("button", {class: "tbtn", disabled: !info.exists, title: "Open in the system viewer",
+            onclick: () => vscode.postMessage({type: "openVisual", path: v, external: true})}, "↗"),
+          h("button", {class: "tbtn", title: "Unlink from this block (the file stays)", onclick: () => {
+            b.visual = vis.filter(x => x !== v);
+            if (!b.visual.length) delete b.visual;
+            render(); pushNow();
+          }}, "✕")));
+    });
+    const panel = h("div", {class: "vpanel"},
+      h("div", {class: "vhead"}, h("b", {}, "Visual"),
+        h("button", {class: "tbtn", title: "Copy a request you can paste to the agent in the side window",
+          onclick: () => vscode.postMessage({type: "copyVisualRequest", index: i})}, "Copy request for the agent"),
+        h("button", {class: "tbtn", onclick: () => vscode.postMessage({type: "addVisual", index: i})}, "Add image…")),
+      items.length ? items : h("p", {class: "vempty"},
+        "Nothing here yet. Copy the request and paste it to the agent: it draws a picture of what this block does, saves it next to the page and links it here."));
+    return h("div", {class: "side open"}, tab, panel);
   }
 
   // Under a file block: what changed since you last looked, and the lines that can change the result.
@@ -371,14 +409,15 @@
     if (restored.has(b.key)) output.append(h("div", {class: "restored"}, `Output from ${when(restored.get(b.key))} · earlier session`));
     for (const o of out.get(b.key) || []) output.append(outputNode(o));
     const stale = isStale(b);
-    return h("div", {class: "blk code" + (running === b.key ? " running" : "") + (stale ? " stale" : ""), "data-key": b.key},
+    return h("div", {class: "blk code" + (running === b.key ? " running" : "") + (stale ? " stale" : "") +
+        (visualOpen.has(b.key) ? " vopen" : ""), "data-key": b.key},
       h("div", {class: "gut"},
         h("button", {class: "runbtn", title: "Run (Shift+Enter)", onclick: () => run([b.key])}, "▶"),
         h("span", {class: "count"}, c == null ? "[ ]" : `[${c}]`)),
       h("div", {class: "box"}, ed,
         h("div", {class: "stale-note", hidden: !stale}, "● Changed since last run · the output below is from the previous version · ▶ to run"),
         output, varsRow(b.key)),
-      tools(i));
+      sideView(b, i), tools(i));
   }
 
   const when = iso => new Date(iso).toLocaleString([], {day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit"});
@@ -561,6 +600,7 @@
     switch (m.type) {
       case "render": {
         name = m.name;
+        visuals = m.visuals || {};
         for (const [p, f] of Object.entries(m.files)) {
           if (dirty.has(p) && files[p]) m.files[p] = files[p];   // keep unsaved edits
           else f.saved = f.text;

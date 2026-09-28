@@ -32,4 +32,11 @@ Level 1: the user picks a part, and you give what goes in, what comes out, and t
 Level 2: show the few lines in that part that can change the result, one at a time, with one sentence each on why. Take them from the "Details that bite" list in `understanding.md` first.
 
 `.regain/bites.json` holds the same lines in a form the notebook pages show in red: `[{"file", "match", "why"}]`, where `match` is a piece of the line's text (not a line number, so it survives edits above it). When you add or change a detail that bites, update this file too, and check that each `match` is still found in its file.
+
+## Visuals
+
+In a `*.regain.md` page, each file or code block can carry pictures that explain it: `visual=visuals/name.svg` at the end of the block's opening fence (several: comma-separated), paths relative to the page's folder. When the user asks for a visual of a block (the page's "Copy request for the agent" button writes the request for you):
+- Draw what the code really does: the flow, what goes in and out, the data shapes. Take facts from the code or from `understanding.md`; never invent numbers, and label anything uncertain.
+- Save an SVG in `.regain/visuals/`, readable on light and dark backgrounds (mid-tone text, transparent background).
+- Link it by adding `visual=` to that block's fence, keeping any existing ones.
 Move down a level only when the user asks.
