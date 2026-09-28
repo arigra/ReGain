@@ -59,18 +59,30 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   assert.strictEqual(set.blocks[2].src, "print(2)");
   assert.ok(!("key" in set.blocks[2]), "keys stay in the view");
   assert.ok(!sent.some(m => m.type === "writeFile"), "typing does not save the file");
-  assert.strictEqual($(".file .state").textContent, "● unsaved");
+  assert.strictEqual($(".file .state").textContent, "● Unsaved changes · ▶ to save");
+  assert.ok($(".blk.file").classList.contains("dirty"), "unsaved file changes colour");
+  assert.strictEqual($(".unsaved").textContent, "● 1 unsaved file");
+  assert.ok(!$(".unsaved").hidden);
 
   // a change on disk does not overwrite unsaved edits
   send({type: "file", path: "src/data.py", content: {text: "from disk", start: 1}});
   assert.strictEqual($(".file textarea").value, "def f():\n    return 2\n");
-  assert.strictEqual($(".file .state").textContent, "● unsaved · changed on disk");
+  assert.strictEqual($(".file .state").textContent, "● Unsaved changes · file changed on disk");
+
+  // running code while a file is unsaved warns in that code block
+  $(".code .runbtn").click();
+  const run3 = sent.filter(m => m.type === "run").pop();
+  assert.ok($(".code .out .warn").textContent.startsWith("⚠ Unsaved changes in src/data.py"));
+  send({type: "runStarted", id: 10, key: run3.key});
+  send({type: "kernel", ev: {id: 10, type: "done", status: "ok"}});
 
   // ▶ on a file block saves it
   $(".file .runbtn").click();
   const wf = sent.find(m => m.type === "writeFile");
   assert.deepStrictEqual(wf, {type: "writeFile", path: "src/data.py", range: null, text: "def f():\n    return 2\n"});
   assert.strictEqual($(".file .state").textContent, "");
+  assert.ok(!$(".blk.file").classList.contains("dirty"));
+  assert.ok($(".unsaved").hidden);
   assert.strictEqual($(".file .count").textContent, "[*]");
   send({type: "saved", path: "src/data.py", ok: true, lines: 3});
   assert.strictEqual($(".file .count").textContent, "[✓]");
@@ -83,6 +95,17 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   send({type: "saved", path: "src/data.py", ok: false, error: "EACCES"});
   assert.strictEqual($(".file .count").textContent, "[!]");
   assert.ok($(".file .out .error").textContent.includes("Could not save src/data.py: EACCES"));
+  assert.ok($(".blk.file").classList.contains("dirty"), "a failed save stays unsaved");
+
+  // typing back to the saved text clears the unsaved state
+  $(".file .runbtn").click();
+  send({type: "saved", path: "src/data.py", ok: true, lines: 3});
+  assert.ok(!$(".blk.file").classList.contains("dirty"), "a retried save clears it");
+  const back = $(".file textarea"); const saved = back.value;
+  back.value = saved + "x"; back.dispatchEvent(new w.Event("input"));
+  assert.ok($(".blk.file").classList.contains("dirty"));
+  back.value = saved; back.dispatchEvent(new w.Event("input"));
+  assert.ok(!$(".blk.file").classList.contains("dirty"));
 
   // Shift+Enter in a file block saves too
   const fta = $(".file textarea"); fta.value = "v3"; fta.dispatchEvent(new w.Event("input"));

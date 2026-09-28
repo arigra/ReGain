@@ -155,7 +155,8 @@
   function saveFile(p, range) {
     if (!files[p] || files[p].missing) return;
     vscode.postMessage({type: "writeFile", path: p, range, text: files[p].text});
-    dirty.delete(p); staleOnDisk.delete(p);
+    files[p].saved = files[p].text;
+    setDirty(p, false);
     fileRuns.set(p, {state: "saving"});
     const blk = app.querySelector(`.blk.file[data-path="${CSS.escape(p)}"]`);
     if (blk) { blk.querySelector(".state").textContent = ""; blk.querySelector(".count").textContent = "[*]"; }
@@ -167,7 +168,26 @@
       ? h("div", {class: "out saved"}, `✓ Saved ${p} · ${r.lines} lines · ${r.time}`)
       : h("div", {class: "out"}, h("span", {class: "error"}, `✗ Could not save ${p}: ${r.error}`));
   }
-  const fileState = p => staleOnDisk.has(p) ? "● unsaved · changed on disk" : dirty.has(p) ? "● unsaved" : "";
+  const fileState = p => staleOnDisk.has(p) ? "● Unsaved changes · file changed on disk"
+    : dirty.has(p) ? "● Unsaved changes · ▶ to save" : "";
+
+  // A file block with unsaved edits turns the "unsaved" colour, and the top bar counts them.
+  function setDirty(p, on) {
+    if (on) dirty.add(p); else { dirty.delete(p); staleOnDisk.delete(p); }
+    const blk = app.querySelector(`.blk.file[data-path="${CSS.escape(p)}"]`);
+    if (blk) { blk.classList.toggle("dirty", on); blk.querySelector(".state").textContent = fileState(p); }
+    const badge = app.querySelector(".unsaved");
+    if (badge) badge.replaceWith(unsavedBadge());
+  }
+  function unsavedBadge() {
+    const n = dirty.size;
+    return h("button", {class: "unsaved", hidden: !n, title: "Go to the first unsaved file",
+      onclick: () => {
+        const p = [...dirty][0];
+        const blk = p && app.querySelector(`.blk.file[data-path="${CSS.escape(p)}"]`);
+        if (blk) blk.scrollIntoView({block: "center", behavior: "smooth"});
+      }}, `● ${n} unsaved file${n === 1 ? "" : "s"}`);
+  }
 
   function fileView(b, i) {
     const f = files[b.path];
@@ -189,8 +209,7 @@
         onInput: v => {
           files[b.path] = {...files[b.path], text: v};
           const n = lineNumbers(f.start, v.split("\n").length); nums.replaceWith(n); nums = n;
-          dirty.add(b.path);
-          state.textContent = fileState(b.path);
+          setDirty(b.path, v !== files[b.path].saved);
         },
         onKey: e => {
           const save = (e.key === "Enter" && (e.shiftKey || e.metaKey || e.ctrlKey)) ||
@@ -204,7 +223,7 @@
       ta.dataset.path = b.path;
       body = h("div", {class: "editor"}, nums, ta);
     }
-    return h("div", {class: "blk file", "data-path": b.path},
+    return h("div", {class: "blk file" + (dirty.has(b.path) ? " dirty" : ""), "data-path": b.path},
       h("div", {class: "gut"},
         h("button", {class: "runbtn", title: "Save the file (Shift+Enter)", onclick: () => saveFile(b.path, b.range)}, "▶"),
         h("span", {class: "count"}, !fileRuns.has(b.path) ? "[ ]" :
@@ -237,6 +256,7 @@
 
   function outputNode(o) {
     if (o.kind === "stream") return h("span", {class: o.name === "stderr" ? "stderr" : ""}, o.text);
+    if (o.kind === "warn") return h("span", {class: "warn"}, o.text);
     if (o.kind === "error") return h("span", {class: "error"}, stripAnsi(o.traceback.join("\n")) + "\n");
     const d = o.data;
     if (d["image/png"]) return h("img", {src: "data:image/png;base64," + d["image/png"]});
@@ -273,6 +293,7 @@
       k === "file" ? "file" : "code");
     return h("div", {class: "top"},
       h("span", {class: "name"}, name),
+      unsavedBadge(),
       h("button", {class: "tbtn", onclick: runAll}, "▶ Run all"),
       h("button", {class: "tbtn", onclick: () => { queue = []; vscode.postMessage({type: "interrupt"}); }}, "■ Stop"),
       h("button", {class: "tbtn", onclick: () => { queue = []; counts.clear(); vscode.postMessage({type: "restart"}); render(); }}, "↻ Restart"),
@@ -334,7 +355,8 @@
     const b = blocks.find(x => x.key === key);
     if (!b) return next();
     running = key;
-    out.set(key, []);
+    out.set(key, dirty.size ? [{kind: "warn", text:
+      `⚠ Unsaved changes in ${[...dirty].join(", ")}. This run uses the saved version; ▶ the file to save it.\n`}] : []);
     counts.set(key, "*");
     render();
     vscode.postMessage({type: "run", key, code: b.src});
@@ -385,6 +407,10 @@
     switch (m.type) {
       case "render": {
         name = m.name;
+        for (const [p, f] of Object.entries(m.files)) {
+          if (dirty.has(p) && files[p]) m.files[p] = files[p];   // keep unsaved edits
+          else f.saved = f.text;
+        }
         files = m.files;
         colors = m.colors || {};
         applyColors();
@@ -399,7 +425,7 @@
       }
       case "file": {
         if (dirty.has(m.path)) { staleOnDisk.add(m.path); return render(); }
-        files[m.path] = m.content;
+        files[m.path] = {...m.content, saved: m.content.text};
         const ta = app.querySelector(`textarea[data-path="${CSS.escape(m.path)}"]`);
         if (ta && document.activeElement === ta) return;   // don't fight the typist
         return render();
@@ -407,6 +433,7 @@
       case "saved": {
         const time = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
         fileRuns.set(m.path, {state: "done", ok: m.ok, lines: m.lines, error: m.error, time});
+        if (!m.ok) { dirty.add(m.path); files[m.path].saved = null; }   // still not on disk
         render();
         const blk = app.querySelector(`.blk.file[data-path="${CSS.escape(m.path)}"]`);
         if (blk) { blk.classList.add("flash"); setTimeout(() => blk.classList.remove("flash"), 700); }

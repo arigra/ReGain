@@ -3,12 +3,14 @@
   --file:#0E7A89; --file-soft:#E1F1F3;
   --code:#4250C0; --code-soft:#E7E9F8;
   --err:#C23B3B; --ok:#2E8B57;
+  --dirty:#C26A00; --dirty-soft:#FBEEDD;
 }
 :root[data-theme="dark"]{
   color-scheme:dark;
   --bg:#0F151B; --surface:#17212B; --sunk:#121A22; --ink:#E5ECF1; --muted:#95A3AF; --line:#2A3743;
   --file:#4FC0CF; --file-soft:#16303A; --code:#8C97F0; --code-soft:#212743;
   --err:#F07A7A; --ok:#6CCB94;
+  --dirty:#F0A04B; --dirty-soft:#3A2A16;
 }
 *{box-sizing:border-box}
 body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:"Assistant",var(--vscode-font-family),sans-serif;font-size:16px;line-height:1.5}
@@ -60,7 +62,7 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px soli
 .file{--c:var(--file);--cs:var(--file-soft)}
 .code{--c:var(--code);--cs:var(--code-soft)}
 
-.bar{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;padding:6px 12px;background:var(--file)}
+.bar{position:relative;display:flex;align-items:center;justify-content:center;gap:8px;padding:6px 12px;background:var(--c)}
 .bar .dots{position:absolute;inset-inline-start:12px;display:flex;gap:6px}
 .bar .dots i{width:10px;height:10px;border-radius:50%;background:var(--surface);opacity:.55}
 .bar .path{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;color:var(--surface);background:none;border:none;padding:0}
@@ -91,6 +93,11 @@ textarea.src{flex:1;display:block;width:100%;min-height:1.6em;resize:none;border
 .out .html{font-family:"Assistant",sans-serif;white-space:normal;overflow:auto}
 .out .html table{border-collapse:collapse;font-size:13px}
 .out .html td,.out .html th{border:1px solid var(--line);padding:2px 8px}
+.blk.file.dirty{--c:var(--dirty);--cs:var(--dirty-soft)}
+.blk.file.dirty .state{opacity:1;font-weight:600}
+.unsaved{font-size:13px;padding:3px 10px;border-radius:6px;border:1px solid var(--dirty);background:var(--dirty-soft);color:var(--dirty);font-weight:600}
+.unsaved[hidden]{display:none}
+.out .warn{color:var(--dirty);font-family:"Assistant",sans-serif}
 .code.running .box{box-shadow:0 0 0 2px var(--c)}
 .out.saved{font-family:"Assistant",sans-serif;font-size:13.5px;color:var(--c)}
 .blk.flash .box{animation:flash .7s ease-out}
