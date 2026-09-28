@@ -5,6 +5,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const {parse, serialize} = require("./format");
 const {Kernel, pythonFor} = require("./kernel");
+const {lineChanges} = require("./diff");
 
 const COLORS_KEY = "regain.colors";
 
@@ -62,13 +63,66 @@ class NotebookEditor {
     const selfWrites = new Map();     // file path -> text we just wrote
     const post = msg => panel.webview.postMessage(msg);
 
+    // Red lines: .regain/bites.json lists {file, match, why}. A line is found by
+    // a piece of its text, so it survives edits above it; a lost match is reported.
+    const bitesPath = path.join(root, ".regain", "bites.json");
+    const loadBites = () => {
+      try { return JSON.parse(fs.readFileSync(bitesPath, "utf8")); } catch { return []; }
+    };
+    let bites = loadBites();
+
+    // What each file looked like when you last saw it (first shown, saved here, or "Mark as seen").
+    const ws = this.context.workspaceState;
+    const seenKey = full => "regain.seen:" + full;
+
+    const fileInfo = b => {
+      const c = readFileBlock(root, b);
+      if (c.missing) return c;
+      const full = path.resolve(root, b.path);
+      const whole = fs.readFileSync(full, "utf8");
+      const lines = whole.split("\n");
+      const [lo, hi] = b.range || [1, lines.length];
+      // The view finds the lines itself (they move while you type); here we only
+      // report matches that are gone from the whole file.
+      c.bites = []; c.lostBites = [];
+      for (const x of bites) {
+        if (!x.file || path.resolve(root, x.file) !== full || !x.match) continue;
+        const bite = {match: x.match, why: x.why || ""};
+        c.bites.push(bite);
+        if (!whole.includes(x.match)) c.lostBites.push(bite);
+      }
+      const seen = ws.get(seenKey(full));
+      c.changed = []; c.removed = 0;
+      if (seen == null) ws.update(seenKey(full), whole);
+      else if (seen !== whole) {
+        const d = lineChanges(seen, whole);
+        c.changed = d.changed.map(i => i + 1).filter(n => n >= lo && n <= hi);
+        c.removed = d.removed;
+      }
+      return c;
+    };
     const files = () => {
       const out = {};
-      for (const b of blocks) if (b.kind === "file" && b.path) out[b.path] = readFileBlock(root, b);
+      for (const b of blocks) if (b.kind === "file" && b.path) out[b.path] = fileInfo(b);
       return out;
     };
+
+    // Outputs of code blocks, kept next to the page and matched by source.
+    const outPath = document.uri.fsPath.replace(/\.md$/, "") + ".outputs.json";
+    let savedOut = {};
+    try { savedOut = JSON.parse(fs.readFileSync(outPath, "utf8")); } catch { /* none yet */ }
+    let outTimer = null;
+    const writeOutputs = () => {
+      clearTimeout(outTimer);
+      outTimer = setTimeout(() => {
+        const live = new Set(blocks.filter(b => b.kind === "code").map(b => b.src));
+        for (const k of Object.keys(savedOut)) if (!live.has(k)) delete savedOut[k];
+        try { fs.writeFileSync(outPath, JSON.stringify(savedOut, null, 1)); } catch { /* read-only */ }
+      }, 500);
+    };
+
     const sendAll = () => post({type: "render", blocks, files: files(), root,
-      name: path.basename(document.uri.fsPath),
+      name: path.basename(document.uri.fsPath), outputs: savedOut,
       colors: this.context.globalState.get(COLORS_KEY, {})});
 
     // Keep the .regain.md in step with the blocks, and saved.
@@ -114,9 +168,10 @@ class NotebookEditor {
 
     const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, "**/*.{py,yaml,yml,json,toml,cfg,txt,sh,md}"));
     const onFile = uri => {
+      if (uri.fsPath === bitesPath) { bites = loadBites(); return sendAll(); }
       const b = blocks.find(x => x.kind === "file" && path.resolve(root, x.path) === uri.fsPath);
       if (!b) return;
-      const content = readFileBlock(root, b);
+      const content = fileInfo(b);
       if (selfWrites.get(b.path) === content.text) return;   // our own write echoing back
       selfWrites.delete(b.path);
       post({type: "file", path: b.path, content});
@@ -165,7 +220,9 @@ class NotebookEditor {
             }
             selfWrites.set(m.path, m.text);
             fs.writeFileSync(full, text);
-            post({type: "saved", path: m.path, ok: true, lines: text.split("\n").length});
+            await ws.update(seenKey(full), text);    // you wrote it, so you have seen it
+            const blk = blocks.find(x => x.kind === "file" && x.path === m.path) || b;
+            post({type: "saved", path: m.path, ok: true, lines: text.split("\n").length, content: fileInfo(blk)});
           } catch (e) {
             post({type: "saved", path: m.path, ok: false, error: e.message});
           }
@@ -186,6 +243,19 @@ class NotebookEditor {
           sendAll();
           break;
         }
+
+        case "markSeen": {
+          const full = path.resolve(root, m.path);
+          if (fs.existsSync(full)) await ws.update(seenKey(full), fs.readFileSync(full, "utf8"));
+          const b = blocks.find(x => x.kind === "file" && x.path === m.path);
+          if (b) post({type: "annot", path: m.path, content: fileInfo(b)});
+          break;
+        }
+
+        case "saveOutput":
+          savedOut[m.src] = m.entry;
+          writeOutputs();
+          break;
 
         case "createMissing": {
           const full = path.resolve(root, m.path);

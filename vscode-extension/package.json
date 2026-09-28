@@ -2,7 +2,7 @@
   "name": "regain",
   "displayName": "ReGain",
   "description": "Opens a project's .regain pages inside VS Code: interactive overview pages, and notebook-style pages built from real .py files.",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "publisher": "arigra",
   "license": "UNLICENSED",
   "engines": {
@@ -45,7 +45,7 @@
     }
   },
   "scripts": {
-    "test": "node test/format.test.js && node test/view.test.js && node test/kernel.test.js"
+    "test": "node test/format.test.js && node test/diff.test.js && node test/view.test.js && node test/provider.test.js && node test/kernel.test.js"
   },
   "devDependencies": {
     "jsdom": "^24.0.0"

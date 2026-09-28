@@ -4,6 +4,8 @@
   --code:#4250C0; --code-soft:#E7E9F8;
   --err:#C23B3B; --ok:#2E8B57;
   --dirty:#C26A00; --dirty-soft:#FBEEDD;
+  --bite:#C93C3C; --bite-soft:rgba(225,70,70,.14); --chg:#A77A00; --chg-soft:rgba(230,180,40,.20);
+  --t-kw:#8A3FB0; --t-st:#3F7F3F; --t-cm:#6B7785; --t-nu:#B0521D; --t-fn:#1F5FB0; --t-bi:#1E7C7C; --t-dc:#8A6D00;
 }
 :root[data-theme="dark"]{
   color-scheme:dark;
@@ -11,6 +13,8 @@
   --file:#4FC0CF; --file-soft:#16303A; --code:#8C97F0; --code-soft:#212743;
   --err:#F07A7A; --ok:#6CCB94;
   --dirty:#F0A04B; --dirty-soft:#3A2A16;
+  --bite:#F07A7A; --bite-soft:rgba(240,122,122,.16); --chg:#E8C35A; --chg-soft:rgba(232,195,90,.16);
+  --t-kw:#C792EA; --t-st:#A9DC76; --t-cm:#7F8C98; --t-nu:#F78C6C; --t-fn:#82AAFF; --t-bi:#89DDFF; --t-dc:#FFCB6B;
 }
 *{box-sizing:border-box}
 body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:"Assistant",var(--vscode-font-family),sans-serif;font-size:16px;line-height:1.5}
@@ -75,13 +79,37 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px soli
 .bar .range{font-size:12px;color:var(--surface);opacity:.8}
 .bar .state{position:absolute;inset-inline-end:12px;font-size:12px;color:var(--surface);opacity:.8}
 
-.editor{display:flex;max-height:360px;overflow:auto}
-.code .editor{max-height:none}
-.nums{flex:none;margin:0;padding:8px 10px 8px 12px;text-align:right;color:var(--muted);opacity:.6;user-select:none;
+.editor{display:flex;align-items:flex-start;max-height:360px;overflow:auto;--padl:4px}
+.code .editor{max-height:none;overflow-x:auto;overflow-y:visible;--padl:14px}
+.nums{flex:none;position:sticky;left:0;z-index:1;padding:8px 10px 8px 12px;text-align:right;user-select:none;background:var(--cs);
   font-family:"JetBrains Mono",monospace;font-size:12.8px;line-height:1.6}
+.nums .n{color:var(--muted);opacity:.6}
+.nums .n.bite{color:var(--bite);opacity:1;font-weight:700;cursor:help}
+.nums .n.chg{color:var(--chg);opacity:1;font-weight:700}
+.srcwrap{position:relative;flex:1 0 auto;min-width:0}
+.hl{position:absolute;inset:0;margin:0;padding:8px 0;pointer-events:none;overflow:hidden;white-space:pre;
+  font-family:"JetBrains Mono",monospace;font-size:12.8px;line-height:1.6;color:var(--ink);tab-size:4}
+.hl .l{padding:0 14px 0 var(--padl);min-height:1.6em}
+.hl .l.bite{background:var(--bite-soft);box-shadow:inset 3px 0 0 var(--bite)}
+.hl .l.chg{background:var(--chg-soft);box-shadow:inset 3px 0 0 var(--chg)}
 textarea.src{flex:1;display:block;width:100%;min-height:1.6em;resize:none;border:none;outline:none;background:none;color:var(--ink);
-  font-family:"JetBrains Mono",monospace;font-size:12.8px;line-height:1.6;padding:8px 14px 8px 4px;overflow:hidden;white-space:pre;tab-size:4}
-.code textarea.src{padding-inline-start:14px}
+  font-family:"JetBrains Mono",monospace;font-size:12.8px;line-height:1.6;padding:8px 14px 8px var(--padl,14px);overflow:hidden;white-space:pre;tab-size:4}
+textarea.src.over{position:relative;color:transparent;caret-color:var(--ink)}
+textarea.src.over::selection{background:color-mix(in srgb, var(--c) 30%, transparent);color:transparent}
+.hl .kw{color:var(--t-kw);font-weight:600} .hl .st{color:var(--t-st)} .hl .cm{color:var(--t-cm);font-style:italic}
+.hl .nu{color:var(--t-nu)} .hl .fn{color:var(--t-fn);font-weight:600} .hl .bi{color:var(--t-bi)} .hl .dc{color:var(--t-dc)}
+
+.notes{border-top:1px solid var(--c);background:var(--surface);padding:6px 14px;display:flex;flex-direction:column;gap:4px;font-size:13.5px}
+.note{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.note.chg{color:var(--chg);font-weight:600}
+.note.bite{color:var(--ink)}
+.note.lost{color:var(--dirty)}
+.lineref{font-family:"JetBrains Mono",monospace;font-size:12px;padding:0 6px;border-radius:4px;border:1px solid var(--bite);background:var(--bite-soft);color:var(--bite)}
+.vars{border-top:1px solid var(--c);background:var(--surface);padding:6px 14px;display:flex;flex-wrap:wrap;gap:6px;font-family:"JetBrains Mono",monospace;font-size:12px}
+.var{padding:1px 8px;border-radius:99px;background:var(--cs);color:var(--ink)}
+.var b{font-weight:600}
+.var .vt{color:var(--muted)}
+.restored{font-family:"Assistant",sans-serif;font-size:12.5px;color:var(--muted);font-style:italic;margin-bottom:4px}
 .missing{padding:10px 14px;font-size:14px;color:var(--muted)}
 .missing button{margin-inline-start:8px}
 

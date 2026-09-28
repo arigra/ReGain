@@ -21,6 +21,16 @@ Two views, both opened by clicking the file:
   Default: `regain.python`, else the Python extension's interpreter, else `python3`. It
   needs `jupyter_client` and `ipykernel`.
 
+  Also in these pages:
+  - Python highlighting in file and code blocks.
+  - Red lines from `.regain/bites.json` (`[{"file", "match", "why"}]`, matched by text), with
+    the reason under the block. A match that is no longer found is reported.
+  - Lines changed since you last looked at a file (by an agent, another editor), until
+    "Mark as seen". Your own saves count as seen.
+  - Under each code block, the variables its run created or replaced, with type and shape.
+  - Outputs are kept in `<page>.regain.outputs.json` next to the page and shown again,
+    marked as from an earlier session. Plots (matplotlib) show inline.
+
 To see either file as text: right-click → Open With… → Text Editor.
 
 Build, test, install:
@@ -28,4 +38,4 @@ Build, test, install:
     npm install
     REGAIN_PYTHON=python3 npm test
     npx @vscode/vsce package --allow-missing-repository --skip-license
-    code --install-extension regain-0.2.4.vsix
+    code --install-extension regain-0.3.0.vsix

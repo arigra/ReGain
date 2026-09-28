@@ -15,6 +15,8 @@
   const staleOnDisk = new Set();  // ...and changed on disk meanwhile
   const fileRuns = new Map();     // path -> result of the last run (save) of that file
   const ranSrc = new Map();       // code block key -> the source it last ran with
+  const varsBy = new Map();       // code block key -> variables its last run created or replaced
+  const restored = new Map();     // code block key -> time of an output kept from an earlier session
   // Collapsed headings, by their text; kept in the webview state across reloads.
   const collapsed = new Set((vscode.getState() || {}).collapsed || []);
   const saveCollapsed = () => vscode.setState({...(vscode.getState() || {}), collapsed: [...collapsed]});
@@ -57,7 +59,7 @@
     for (const k of kids.flat()) if (k != null) el.append(k);
     return el;
   };
-  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const stripAnsi = s => s.replace(/\x1b\[[0-9;]*m/g, "");
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
   const plain = () => blocks.map(({key, ...b}) => b);
@@ -98,10 +100,10 @@
   }
 
   // Textareas that grow with their content, with Tab inserting spaces.
-  function sourceArea(value, {onInput, onKey, readonly}) {
+  function sourceArea(value, {onInput, onKey, readonly, fitter}) {
     const ta = h("textarea", {class: "src", spellcheck: "false", readonly: !!readonly, rows: 1});
     ta.value = value;
-    const fit = () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; };
+    const fit = fitter ? () => fitter(ta) : () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; };
     ta.addEventListener("input", () => { fit(); onInput && onInput(ta.value); });
     ta.addEventListener("keydown", e => {
       if (onKey && onKey(e)) return;
@@ -115,8 +117,67 @@
     ta.fit = fit;
     return ta;
   }
-  const lineNumbers = (start, n) =>
-    h("pre", {class: "nums"}, Array.from({length: Math.max(n, 1)}, (_, i) => start + i).join("\n"));
+
+  // ---------- Python highlighting ----------
+  const KW = new Set(("False None True and as assert async await break class continue def del elif else except " +
+    "finally for from global if import in is lambda nonlocal not or pass raise return try while with yield").split(" "));
+  const BUILTIN = new Set(("print len range enumerate zip map filter sum min max abs int float str bool list dict set " +
+    "tuple type isinstance super open sorted reversed any all round getattr setattr hasattr iter next repr self cls").split(" "));
+  const TOKEN = new RegExp([
+    /(#[^\n]*)/.source,                                                        // comment
+    /([rRbBuUfF]{0,2}(?:"""[\s\S]*?(?:"""|$)|'''[\s\S]*?(?:'''|$)|"(?:[^"\\\n]|\\.)*"?|'(?:[^'\\\n]|\\.)*'?))/.source,  // string
+    /(@[\w.]+)/.source,                                                        // decorator
+    /(\b\d[\d_]*(?:\.\d*)?(?:[eE][+-]?\d+)?j?\b|\.\d+\b)/.source,              // number
+    /([A-Za-z_]\w*)/.source,                                                   // name
+  ].join("|"), "g");
+  function highlightLines(src) {
+    const lines = [[]];
+    let last = 0, prev = "";
+    const add = (cls, text) => text.split("\n").forEach((part, j) => {
+      if (j) lines.push([]);
+      if (part) lines[lines.length - 1].push(cls ? `<span class="${cls}">${esc(part)}</span>` : esc(part));
+    });
+    for (const m of src.matchAll(TOKEN)) {
+      if (m.index > last) add("", src.slice(last, m.index));
+      let cls = m[1] ? "cm" : m[2] ? "st" : m[3] ? "dc" : m[4] ? "nu" : "";
+      if (m[5]) cls = KW.has(m[5]) ? "kw" : (prev === "def" || prev === "class") ? "fn" : BUILTIN.has(m[5]) ? "bi" : "";
+      prev = m[5] || "";
+      add(cls, m[0]);
+      last = m.index + m[0].length;
+    }
+    if (last < src.length) add("", src.slice(last));
+    return lines.map(l => l.join(""));
+  }
+
+  // A code editor: a transparent textarea over a highlighted copy of the same text,
+  // with line numbers and per-line marks ({line index: {cls, title}}).
+  function codeEditor(value, {start = 1, numbers = false, marks = () => ({}), onInput, onKey}) {
+    const hl = h("pre", {class: "hl", "aria-hidden": "true"});
+    const nums = numbers ? h("div", {class: "nums", "aria-hidden": "true"}) : null;
+    let el;
+    const fitter = ta => {
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + "px";
+      const avail = Math.max(0, (el ? el.clientWidth : 0) - (nums ? nums.offsetWidth : 0));
+      ta.style.width = avail + "px";
+      if (ta.scrollWidth > avail) ta.style.width = ta.scrollWidth + "px";
+    };
+    const ta = sourceArea(value, {onInput: v => { paint(); onInput && onInput(v); }, onKey, fitter});
+    ta.classList.add("over");
+    ta.setAttribute("wrap", "off");
+    const paint = () => {
+      const lines = highlightLines(ta.value), mk = marks(ta.value);
+      const cls = i => mk[i] ? " " + mk[i].cls : "";
+      hl.innerHTML = lines.map((l, i) => `<div class="l${cls(i)}">${l || " "}</div>`).join("");
+      if (nums) nums.innerHTML = lines.map((_, i) =>
+        `<div class="n${cls(i)}"${mk[i] && mk[i].title ? ` title="${esc(mk[i].title)}"` : ""}>${start + i}</div>`).join("");
+    };
+    paint();
+    el = h("div", {class: "editor"}, nums, h("div", {class: "srcwrap"}, hl, ta));
+    el.ta = ta;
+    return el;
+  }
+  window.addEventListener("resize", debounce(() => app.querySelectorAll("textarea.src").forEach(t => t.fit && t.fit()), 100));
 
   // ---------- block views ----------
   function tools(i) {
@@ -235,12 +296,16 @@
       body = h("div", {class: "missing"}, "This file does not exist yet.",
         h("button", {class: "tbtn", onclick: () => vscode.postMessage({type: "createMissing", path: b.path})}, "Create it"));
     } else {
-      const text = f.text;
-      let nums = lineNumbers(f.start, text.split("\n").length);
-      const ta = sourceArea(text, {
+      const marks = text => {
+        const cur = files[b.path], mk = {};
+        if (text === cur.saved) for (const n of cur.changed || []) mk[n - cur.start] = {cls: "chg", title: "Changed since you last looked"};
+        const lines = text.split("\n");
+        for (const x of cur.bites || []) lines.forEach((l, j) => { if (l.includes(x.match)) mk[j] = {cls: "bite", title: x.why}; });
+        return mk;
+      };
+      const ed = codeEditor(f.text, {start: f.start, numbers: true, marks,
         onInput: v => {
           files[b.path] = {...files[b.path], text: v};
-          const n = lineNumbers(f.start, v.split("\n").length); nums.replaceWith(n); nums = n;
           setDirty(b.path, v !== files[b.path].saved);
         },
         onKey: e => {
@@ -252,20 +317,45 @@
           if (e.key === "Enter" && e.shiftKey) focusNext(i);
           return true;
         }});
-      ta.dataset.path = b.path;
-      body = h("div", {class: "editor"}, nums, ta);
+      ed.ta.dataset.path = b.path;
+      body = ed;
     }
     return h("div", {class: "blk file" + (dirty.has(b.path) ? " dirty" : ""), "data-path": b.path},
       h("div", {class: "gut"},
         h("button", {class: "runbtn", title: "Save the file (Shift+Enter)", onclick: () => saveFile(b.path, b.range)}, "▶"),
         h("span", {class: "count"}, !fileRuns.has(b.path) ? "[ ]" :
           fileRuns.get(b.path).state === "saving" ? "[*]" : fileRuns.get(b.path).ok ? "[✓]" : "[!]")),
-      h("div", {class: "box"}, bar, body, fileResult(b.path)), tools(i));
+      h("div", {class: "box"}, bar, body, fileNotes(b), fileResult(b.path)), tools(i));
+  }
+
+  // Under a file block: what changed since you last looked, and the lines that can change the result.
+  function fileNotes(b) {
+    const f = files[b.path];
+    if (!f || f.missing) return null;
+    const rows = [];
+    const nCh = (f.changed || []).length, nRm = f.removed || 0;
+    if ((nCh || nRm) && f.text === f.saved) {
+      const what = [nCh && `${nCh} line${nCh === 1 ? "" : "s"} new or changed`, nRm && `${nRm} removed`].filter(Boolean).join(", ");
+      rows.push(h("div", {class: "note chg"}, `◆ Since you last looked: ${what}`,
+        h("button", {class: "tbtn", onclick: () => vscode.postMessage({type: "markSeen", path: b.path})}, "Mark as seen")));
+    }
+    const lines = f.text.split("\n");
+    for (const x of f.bites || []) {
+      const j = lines.findIndex(l => l.includes(x.match));
+      if (j < 0) continue;
+      rows.push(h("div", {class: "note bite"},
+        h("button", {class: "lineref", title: "Open at this line",
+          onclick: () => vscode.postMessage({type: "open", path: b.path, line: f.start + j})}, `line ${f.start + j}`),
+        " " + x.why));
+    }
+    for (const x of f.lostBites || [])
+      rows.push(h("div", {class: "note lost"}, `⚠ A marked line is gone from the file: “${x.match}”. ${x.why}`));
+    return rows.length ? h("div", {class: "notes"}, rows) : null;
   }
 
   function codeView(b, i) {
     const c = counts.get(b.key);
-    const ta = sourceArea(b.src, {
+    const ed = codeEditor(b.src, {
       onInput: v => { b.src = v; push(); setStale(b); },
       onKey: e => {
         if (e.key === "Enter" && (e.shiftKey || e.metaKey || e.ctrlKey)) {
@@ -275,18 +365,30 @@
           return true;
         }
       }});
+    const ta = ed.ta;
     ta.dataset.key = b.key;
     const output = h("div", {class: "out"});
+    if (restored.has(b.key)) output.append(h("div", {class: "restored"}, `Output from ${when(restored.get(b.key))} · earlier session`));
     for (const o of out.get(b.key) || []) output.append(outputNode(o));
     const stale = isStale(b);
     return h("div", {class: "blk code" + (running === b.key ? " running" : "") + (stale ? " stale" : ""), "data-key": b.key},
       h("div", {class: "gut"},
         h("button", {class: "runbtn", title: "Run (Shift+Enter)", onclick: () => run([b.key])}, "▶"),
         h("span", {class: "count"}, c == null ? "[ ]" : `[${c}]`)),
-      h("div", {class: "box"}, h("div", {class: "editor"}, ta),
+      h("div", {class: "box"}, ed,
         h("div", {class: "stale-note", hidden: !stale}, "● Changed since last run · the output below is from the previous version · ▶ to run"),
-        output),
+        output, varsRow(b.key)),
       tools(i));
+  }
+
+  const when = iso => new Date(iso).toLocaleString([], {day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit"});
+
+  // "m ndarray (64, 32) float64 · w float 0.8": what the last run created or replaced.
+  function varsRow(key) {
+    const vars = varsBy.get(key);
+    if (!vars || !vars.length) return null;
+    return h("div", {class: "vars"}, vars.map(v =>
+      h("span", {class: "var"}, h("b", {}, v.name), " ", h("span", {class: "vt"}, v.type), v.info ? " " + v.info : "")));
   }
 
   function outputNode(o) {
@@ -402,6 +504,8 @@
     if (!b) return next();
     running = key;
     ranSrc.set(key, b.src);
+    varsBy.delete(key);
+    restored.delete(key);
     out.set(key, dirty.size ? [{kind: "warn", text:
       `⚠ Unsaved changes in ${[...dirty].join(", ")}. This run uses the saved version; ▶ the file to save it.\n`}] : []);
     counts.set(key, "*");
@@ -442,8 +546,11 @@
       case "stream": return append(key, {kind: "stream", name: ev.name, text: ev.text});
       case "result": return append(key, {kind: "result", data: ev.data});
       case "error": return append(key, {kind: "error", traceback: ev.traceback});
+      case "vars": varsBy.set(key, ev.vars); return;
       case "done":
         idToKey.delete(ev.id);
+        if (key != null && ranSrc.has(key)) vscode.postMessage({type: "saveOutput", src: ranSrc.get(key),
+          entry: {outputs: (out.get(key) || []).filter(o => o.kind !== "warn"), vars: varsBy.get(key) || [], time: new Date().toISOString(), status: ev.status}});
         if (ev.status === "error" && stopOnError) queue = [];
         return next();
     }
@@ -468,6 +575,13 @@
           const same = o && o.kind === b.kind && (b.kind !== "code" || o.src === b.src);
           return {...b, key: same ? o.key : nextKey++};
         });
+        for (const b of blocks) {
+          const kept = b.kind === "code" && !out.has(b.key) && (m.outputs || {})[b.src];
+          if (!kept) continue;
+          out.set(b.key, kept.outputs || []);
+          varsBy.set(b.key, kept.vars || []);
+          restored.set(b.key, kept.time);
+        }
         return render();
       }
       case "file": {
@@ -481,10 +595,18 @@
         const time = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
         fileRuns.set(m.path, {state: "done", ok: m.ok, lines: m.lines, error: m.error, time});
         if (!m.ok) { dirty.add(m.path); files[m.path].saved = null; }   // still not on disk
+        else if (m.content && files[m.path])
+          for (const k of ["bites", "lostBites", "changed", "removed"]) files[m.path][k] = m.content[k];
         render();
         const blk = app.querySelector(`.blk.file[data-path="${CSS.escape(m.path)}"]`);
         if (blk) { blk.classList.add("flash"); setTimeout(() => blk.classList.remove("flash"), 700); }
         return;
+      }
+      case "annot": {
+        const f = files[m.path];
+        if (!f) return;
+        for (const k of ["bites", "lostBites", "changed", "removed"]) f[k] = m.content[k];
+        return render();
       }
       case "range":
         for (const b of blocks) if (b.kind === "file" && b.path === m.path && b.range &&

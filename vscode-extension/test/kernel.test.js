@@ -37,6 +37,18 @@ const {Kernel} = require("../notebook/kernel");
   assert.ok(events.some(e => e.id === r2 && e.type === "result" && e.data["text/plain"] === "2"), "autoreload");
   assert.ok(events.some(e => e.type === "status" && e.state === "idle" && /^\d+\.\d+/.test(e.version)), "reports version");
 
+  // a run reports the variables it created or replaced, not modules or functions
+  const v1 = await k.exec("import os\nitems = [1, 2, 3]\nrate = 0.25\ndef g(): pass");
+  await doneOf(v1);
+  const vars = events.find(e => e.id === v1 && e.type === "vars").vars;
+  assert.deepStrictEqual(vars, [{name: "items", type: "list", info: "len 3"}, {name: "rate", type: "float", info: "0.25"}]);
+
+  // plots come back as images
+  const p1 = await k.exec("try:\n    import matplotlib.pyplot as plt\n    plt.plot([1, 2]); plt.show()\nexcept ImportError:\n    print('no matplotlib')");
+  await doneOf(p1);
+  const noMpl = events.some(e => e.id === p1 && e.type === "stream" && e.text.includes("no matplotlib"));
+  assert.ok(noMpl || events.some(e => e.id === p1 && e.type === "result" && e.data["image/png"]), "plot image");
+
   const b = await k.exec("undefined_name");
   await doneOf(b);
   assert.ok(events.some(e => e.id === b && e.type === "error" && e.ename === "NameError"));

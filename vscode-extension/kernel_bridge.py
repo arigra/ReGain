@@ -4,6 +4,7 @@ Reads one JSON request per line on stdin, writes one JSON event per line on
 stdout. Requests: {"op": "exec", "id", "code"}, {"op": "interrupt"},
 {"op": "restart"}, {"op": "shutdown"}. Every exec ends with a "done" event.
 """
+import ast
 import json
 import platform
 import queue
@@ -13,8 +14,49 @@ import threading
 from jupyter_client import KernelManager
 from jupyter_client.kernelspec import KernelSpec
 
-# Edits to project files take effect without restarting the kernel.
-SETUP = "%load_ext autoreload\n%autoreload 2"
+# Edits to project files take effect without restarting the kernel. Plots
+# come back as images. The helpers report which variables a run created or
+# replaced, with type and shape.
+SETUP = r"""
+%load_ext autoreload
+%autoreload 2
+try:
+    %matplotlib inline
+except Exception:
+    pass
+
+def _regain_ids():
+    return {k: id(v) for k, v in globals().items() if not k.startswith("_")}
+
+def _regain_vars(before):
+    import json, types
+    skip = {"In", "Out", "exit", "quit", "get_ipython"}
+    out = []
+    for k, v in list(globals().items()):
+        if k.startswith("_") or k in skip or before.get(k) == id(v):
+            continue
+        if isinstance(v, (types.ModuleType, types.FunctionType, types.BuiltinFunctionType, type)):
+            continue
+        shape = getattr(v, "shape", None)
+        if shape is not None and not callable(shape):
+            info = str(tuple(shape))
+            dtype = getattr(v, "dtype", None)
+            if dtype is not None:
+                info += " " + str(dtype).replace("torch.", "")
+        elif isinstance(v, float):
+            info = f"{v:.6g}"
+        elif isinstance(v, (bool, int, complex)):
+            info = repr(v)
+        elif isinstance(v, str):
+            info = repr(v[:40]) + ("…" if len(v) > 40 else "")
+        else:
+            try:
+                info = f"len {len(v)}"
+            except Exception:
+                info = ""
+        out.append({"name": k, "type": type(v).__name__, "info": info})
+    return json.dumps(out)
+"""
 
 
 def emit(**event):
@@ -38,8 +80,24 @@ def start(cwd):
     return km, kc
 
 
+def new_vars(kc, msg_id):
+    """Variables the run created or replaced, from its execute_reply."""
+    while True:
+        try:
+            reply = kc.get_shell_msg(timeout=10)
+        except queue.Empty:
+            return None
+        if reply["parent_header"].get("msg_id") == msg_id:
+            break
+    expr = reply["content"].get("user_expressions", {}).get("vars", {})
+    if expr.get("status") != "ok":
+        return None
+    return json.loads(ast.literal_eval(expr["data"]["text/plain"]))
+
+
 def run(kc, rid, code):
-    msg_id = kc.execute(code)
+    kc.execute("_regain_before = _regain_ids()", silent=True, store_history=False)
+    msg_id = kc.execute(code, user_expressions={"vars": "_regain_vars(_regain_before)"})
     status = "ok"
     while True:
         msg = kc.get_iopub_msg()
@@ -58,6 +116,9 @@ def run(kc, rid, code):
             emit(id=rid, type="count", count=c["execution_count"])
         elif kind == "status" and c["execution_state"] == "idle":
             break
+    found = new_vars(kc, msg_id)
+    if found:
+        emit(id=rid, type="vars", vars=found)
     emit(id=rid, type="done", status=status)
 
 

@@ -13,6 +13,7 @@ w.scrollTo = () => {};
 w.eval(src);
 const send = m => w.dispatchEvent(new w.MessageEvent("message", {data: m}));
 const tick = () => new Promise(r => setTimeout(r, 30));
+const numsOf = sel => [...w.document.querySelectorAll(sel + " .nums .n")].map(n => n.textContent).join("\n");
 const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelectorAll(s)];
 
 (async () => {
@@ -27,7 +28,7 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   assert.strictEqual($(".text h2").textContent, "1 · Data");
   assert.strictEqual($(".text code").textContent, "frame");
   assert.strictEqual($(".file .path").textContent, "src/data.py");
-  assert.strictEqual($(".file .nums").textContent, "1\n2");
+  assert.strictEqual(numsOf(".file"), "1\n2");
   assert.ok($$(".missing")[0].textContent.includes("does not exist"));
 
   // run a code block and feed kernel events back
@@ -55,7 +56,7 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   // editing a code block saves the page; a file block is written only when run (saved)
   const codeTa = $(".code textarea"); codeTa.value = "print(2)"; codeTa.dispatchEvent(new w.Event("input"));
   const fileTa = $(".file textarea"); fileTa.value = "def f():\n    return 2\n"; fileTa.dispatchEvent(new w.Event("input"));
-  assert.strictEqual($(".file .nums").textContent, "1\n2\n3");
+  assert.strictEqual(numsOf(".file"), "1\n2\n3");
   await new Promise(r => setTimeout(r, 500));
   const set = sent.filter(m => m.type === "setBlocks").pop();
   assert.strictEqual(set.blocks[2].src, "print(2)");
@@ -169,6 +170,63 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   send({type: "kernel", ev: {type: "fatal", message: "Could not start python3"}});
   assert.strictEqual($(".banner").textContent, "Could not start python3");
   assert.ok($(".kstate").className.includes("dead"));
+  // highlighting: the textarea is transparent over a coloured copy of the text
+  send({type: "render", name: "h.regain.md", root: "/r", colors: {},
+    blocks: [{kind: "file", path: "src/m.py", range: null}, {kind: "code", src: "x = f(2)  # go"}],
+    files: {"src/m.py": {text: "import os\n\ndef f(n):\n    return n * 30\n", start: 1,
+      bites: [{match: "n * 30", why: "30 sets the peak"}, {match: "gone()", why: "was here"}],
+      lostBites: [{match: "gone()", why: "was here"}], changed: [3], removed: 1}}});
+  assert.ok($(".file textarea").classList.contains("over"));
+  assert.strictEqual($(".file .hl .kw").textContent, "import");
+  assert.strictEqual($(".file .hl .fn").textContent, "f");
+  assert.strictEqual($(".code .hl .cm").textContent, "# go");
+  assert.strictEqual($(".code .hl .nu").textContent, "2");
+  assert.strictEqual($$(".file .hl .l").length, 5, "one overlay line per text line");
+
+  // red lines: found by text, marked in the text and the numbers, listed under the block
+  const hlLines = $$(".file .hl .l");
+  assert.ok(hlLines[3].classList.contains("bite"));
+  assert.strictEqual($$(".file .nums .n")[3].getAttribute("title"), "30 sets the peak");
+  assert.strictEqual($(".note.bite").textContent, "line 4 30 sets the peak");
+  $(".note.bite .lineref").click();
+  assert.deepStrictEqual(sent.pop(), {type: "open", path: "src/m.py", line: 4});
+  assert.ok($(".note.lost").textContent.includes("gone()"));
+
+  // changes since you last looked
+  assert.ok(hlLines[2].classList.contains("chg"));
+  assert.strictEqual($(".note.chg").firstChild.textContent, "◆ Since you last looked: 1 line new or changed, 1 removed");
+  $(".note.chg button").click();
+  assert.deepStrictEqual(sent.pop(), {type: "markSeen", path: "src/m.py"});
+  send({type: "annot", path: "src/m.py", content: {bites: [{match: "n * 30", why: "30 sets the peak"}], lostBites: [], changed: [], removed: 0}});
+  assert.ok(!$(".note.chg") && !$(".note.lost"));
+
+  // a red line follows its text while you type
+  const mta = $(".file textarea");
+  mta.value = "# top\n" + mta.value; mta.dispatchEvent(new w.Event("input"));
+  assert.ok($$(".file .hl .l")[4].classList.contains("bite"));
+
+  // variables from a run, and the output kept next to the page
+  $(".code .runbtn").click();
+  const rv = sent.filter(m => m.type === "run").pop();
+  send({type: "runStarted", id: 20, key: rv.key});
+  send({type: "kernel", ev: {id: 20, type: "stream", name: "stdout", text: "hi\n"}});
+  send({type: "kernel", ev: {id: 20, type: "vars", vars: [{name: "x", type: "ndarray", info: "(64, 32) float64"}]}});
+  send({type: "kernel", ev: {id: 20, type: "done", status: "ok"}});
+  assert.strictEqual($(".vars").textContent, "x ndarray (64, 32) float64");
+  const so = sent.filter(m => m.type === "saveOutput").pop();
+  assert.strictEqual(so.src, "x = f(2)  # go");
+  assert.deepStrictEqual(so.entry.vars, [{name: "x", type: "ndarray", info: "(64, 32) float64"}]);
+  assert.deepStrictEqual(so.entry.outputs, [{kind: "stream", name: "stdout", text: "hi\n"}]);
+
+  // a fresh view restores it, marked as from an earlier session
+  send({type: "render", name: "h2.regain.md", root: "/r", colors: {}, files: {},
+    blocks: [{kind: "text", src: "# other"}], outputs: {}});
+  send({type: "render", name: "h.regain.md", root: "/r", colors: {}, files: {},
+    blocks: [{kind: "code", src: "x = f(2)  # go"}], outputs: {"x = f(2)  # go": so.entry}});
+  assert.ok($(".code .restored").textContent.startsWith("Output from "));
+  assert.ok($(".code .out").textContent.includes("hi"));
+  assert.strictEqual($(".vars").textContent, "x ndarray (64, 32) float64");
+
   // collapsing a heading hides what is under it, down to the next heading of its level
   send({type: "render", name: "c.regain.md", root: "/r", colors: {},
     blocks: [{kind: "text", src: "# Top\nintro"}, {kind: "text", src: "## A\nabout A"},

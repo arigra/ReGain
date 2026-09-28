@@ -30,4 +30,6 @@ Only when the user explicitly asks may you edit project files, write new code, r
 
 Level 1: the user picks a part, and you give what goes in, what comes out, and the files, in 3-5 sentences.
 Level 2: show the few lines in that part that can change the result, one at a time, with one sentence each on why. Take them from the "Details that bite" list in `understanding.md` first.
+
+`.regain/bites.json` holds the same lines in a form the notebook pages show in red: `[{"file", "match", "why"}]`, where `match` is a piece of the line's text (not a line number, so it survives edits above it). When you add or change a detail that bites, update this file too, and check that each `match` is still found in its file.
 Move down a level only when the user asks.
