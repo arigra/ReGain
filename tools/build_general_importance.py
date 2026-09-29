@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 LEVELS = {"critical", "important", "supporting"}
+LEVEL_RANK = {"supporting": 0, "important": 1, "critical": 2}
 DISPLAY = re.compile(r"(?:^|\.)(?:print|display|show|show_table|plot|scatter|bar|hist|legend|grid|set|set_title|set_xlabel|set_ylabel|subplots|figure|savefig|imshow|step|stackplot|axhline|axvspan|colorbar)$")
 
 
@@ -196,6 +197,38 @@ def apply_reviews(plans, reviews, warnings):
         plan["confidence"][line] = "reviewed"
 
 
+def promote_definitions(plan):
+    """Give definition headers the strongest importance found in their body.
+
+    This is a draft inference. An explicit agent review of a header wins.
+    """
+    tree = ast.parse(plan["source"])
+    definitions = [node for node in ast.walk(tree)
+                   if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
+    for node in sorted(definitions, key=lambda item: item.lineno, reverse=True):
+        if not node.body:
+            continue
+        first_body = node.body[0].lineno - 1
+        end = min(node.end_lineno or node.lineno, len(plan["lines"]))
+        candidates = [index for index in range(first_body, end)
+                      if plan["lines"][index] in {"critical", "important"}]
+        if not candidates:
+            continue
+        strongest = max(candidates, key=lambda index: (
+            LEVEL_RANK[plan["lines"][index]],
+            plan["confidence"][index] == "reviewed",
+        ))
+        level = plan["lines"][strongest]
+        kind = "class" if isinstance(node, ast.ClassDef) else "function"
+        reason = (f"Defines {kind} {node.name}; its body includes a "
+                  f"{level} step: {short(plan['reasons'][strongest], 115)}")
+        for index in range(node.lineno - 1, max(node.lineno, first_body)):
+            if plan["lines"][index] is not None and plan["confidence"][index] != "reviewed":
+                plan["lines"][index] = level
+                plan["reasons"][index] = reason
+                plan["confidence"][index] = "low"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="project root (default: current directory)")
@@ -260,6 +293,10 @@ def main():
     review_path = regain / "importance-reviews.json"
     if review_path.is_file():
         apply_reviews(plans, json.loads(review_path.read_text(encoding="utf-8")), warnings)
+    for kind, group in plans.items():
+        for key, plan in group.items():
+            if kind == "cells" or Path(key).suffix.lower() == ".py":
+                promote_definitions(plan)
     summary = []
     for kind, group in plans.items():
         for key, plan in group.items():
@@ -286,6 +323,9 @@ processing. Give each correction a short, specific reason an engineer can
 understand on hover. A conditional used only for logging or plotting is
 supporting, even if it uses `if`. Mark a decision gate critical only when its
 effect has been traced. Report unresolved questions instead of guessing.
+Definition headers inherit the strongest body color as a draft. Review each
+function or class as a whole: a helper can stay green even if it contains a
+branch, and a public entry point may matter more than any one body line.
 
 Write corrections to `.regain/importance-reviews.json` as a JSON array. Each
 entry needs `file` (relative to project root) or `cell_sha256`, `sha256`, an

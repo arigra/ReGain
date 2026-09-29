@@ -74,6 +74,13 @@ or agent-authored map. ReGain
 does not yet launch an agent automatically; the generated review document is
 the handoff that works with any engineering agent.
 
+Function and class definition lines take the strongest importance found in
+their bodies, so a definition with important work starts yellow and one with a
+critical step starts red. This is still a draft inference: an agent should
+judge the callable or class as a whole. A hash-bound review of the definition
+line overrides the inferred color and reason, including when a helper should
+stay green despite a consequential-looking branch inside it.
+
 If the project already has a map from a different generator, the portable
 generator leaves it untouched. Pass `--replace-existing` only when you intend
 to replace those existing explanations.
