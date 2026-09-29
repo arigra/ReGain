@@ -3,7 +3,7 @@
 ReGain helps you get back into a project that AI agents built, when you know what it is for but no longer know what is inside. It lives in VS Code, next to a Claude Code chat:
 
 - **An overview page**: the project in one picture, with its parts and the files they live in.
-- **Notebook pages** (`*.regain.md`): the project's real files, in the order they run, each followed by a short piece of code that runs it. Lines that can change the result are marked red; lines an agent changed since you last looked are marked yellow; each block can carry a picture that explains it.
+- **Notebook pages** (`*.regain.md`): the project's real files, in the order they run, each followed by a short piece of code that runs it. Red lines mark critical decisions, yellow lines mark important calculations, and green lines can be skipped on a first reading. Hover for a short reason. Lines changed since you last looked have a separate purple marker. Each block can carry a picture that explains it.
 - **The `/regain` guide** in Claude Code: answers questions about the project at the level you are at, from what `.regain/understanding.md` and the code say.
 
 A project's ReGain files live in its own `.regain/` folder, so they travel with the project in git.
@@ -30,6 +30,11 @@ The setup installs the ReGain, Python and Claude Code extensions into VS Code, l
 4. Open Claude Code in the side window and type `/regain` to talk about the project.
 
 In a notebook page, ▶ next to a code block runs it, ▶ next to a file block saves the file, and the ▸ on the right of a block opens its pictures.
+
+File blocks grow with their contents up to a window-relative height, then scroll.
+See [line importance in other projects](docs/line-importance.md) for the Python
+generator and agent review workflow. Its first pass is a draft; the agent
+must trace project behavior to give reliable explanations.
 
 ## If something does not work
 

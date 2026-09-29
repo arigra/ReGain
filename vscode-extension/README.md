@@ -23,8 +23,12 @@ Two views, both opened by clicking the file:
 
   Also in these pages:
   - Python highlighting in file and code blocks.
-  - Red lines from `.regain/bites.json` (`[{"file", "match", "why"}]`, matched by text), with
-    the reason under the block. A match that is no longer found is reported.
+  - Red, yellow, and green lines from `.regain/line-importance.json` mark
+    critical, important, and first-pass skippable code. Hover for the reason.
+    The same colors work in source file blocks and runnable Python blocks.
+    `.regain/bites.json` can supply focused explanations with `file`, a unique
+    `match`, `why`, and `importance`. The old notes list under file blocks is hidden.
+  - Long file blocks grow to a window-relative height before scrolling.
   - Lines changed since you last looked at a file (by an agent, another editor), until
     "Mark as seen". Your own saves count as seen.
   - Under each code block, the variables its run created or replaced, with type and shape.
@@ -44,4 +48,4 @@ Build, test, install:
     npm install
     REGAIN_PYTHON=python3 npm test
     npx @vscode/vsce package --allow-missing-repository --skip-license
-    code --install-extension regain-0.4.0.vsix
+    code --install-extension ../dist/regain-0.7.3.vsix

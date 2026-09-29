@@ -4,7 +4,9 @@
   const app = document.getElementById("app");
   const root = document.documentElement;
 
-  let name = "", blocks = [], files = {}, visuals = {};
+  let name = "", blocks = [], files = {}, visuals = {}, importance = {}, cellImportance = {};
+  const importanceLabel = level => ({critical: "Critical", important: "Important",
+    supporting: "Skippable"})[level] || level;
   const visualOpen = new Set();   // block keys whose visual panel is open
   let nextKey = 1;
   const out = new Map();          // block key -> [{kind, ...}]
@@ -169,13 +171,56 @@
     const paint = () => {
       const lines = highlightLines(ta.value), mk = marks(ta.value);
       const cls = i => mk[i] ? " " + mk[i].cls : "";
-      hl.innerHTML = lines.map((l, i) => `<div class="l${cls(i)}">${l || " "}</div>`).join("");
+      hl.innerHTML = lines.map((l, i) => {
+        const mark = mk[i];
+        const title = mark && mark.title ? ` data-line-reason="${esc(mark.title)}"` : "";
+        return `<div class="l${cls(i)}"${title}>${l || " "}</div>`;
+      }).join("");
       if (nums) nums.innerHTML = lines.map((_, i) =>
         `<div class="n${cls(i)}"${mk[i] && mk[i].title ? ` title="${esc(mk[i].title)}"` : ""}>${start + i}</div>`).join("");
     };
     paint();
     el = h("div", {class: "editor"}, nums, h("div", {class: "srcwrap"}, hl, ta));
     el.ta = ta;
+    const tip = h("div", {class: "line-reason-tooltip", role: "tooltip"});
+    el.append(tip);
+    let reasonTimer = 0;
+    let pendingRow = null;
+    const showReason = event => {
+      // The transparent textarea sits over the highlighted source, so pointer
+      // events land on the editor. Resolve the visible source row by its Y position.
+      const row = [...hl.querySelectorAll(".l[data-line-reason]")].find(candidate => {
+        const rect = candidate.getBoundingClientRect();
+        return event.clientY >= rect.top && event.clientY <= rect.bottom;
+      });
+      if (!row) {
+        clearTimeout(reasonTimer);
+        pendingRow = null;
+        tip.hidden = true;
+        return;
+      }
+      const reason = row.dataset.lineReason;
+      if (row === pendingRow) return;
+      clearTimeout(reasonTimer);
+      pendingRow = row;
+      tip.hidden = true;
+      const rowBox = row.getBoundingClientRect();
+      const left = Math.max(8, Math.min(event.clientX + 14, window.innerWidth - 380));
+      const top = Math.min(rowBox.top + 4, window.innerHeight - 70);
+      reasonTimer = setTimeout(() => {
+        if (pendingRow !== row || !el.isConnected) return;
+        tip.textContent = reason;
+        tip.style.left = left + "px";
+        tip.style.top = top + "px";
+        tip.hidden = false;
+      }, 500);
+    };
+    el.addEventListener("pointermove", showReason);
+    el.addEventListener("pointerleave", () => {
+      clearTimeout(reasonTimer);
+      pendingRow = null;
+      tip.hidden = true;
+    });
     return el;
   }
   window.addEventListener("resize", debounce(() => app.querySelectorAll("textarea.src").forEach(t => t.fit && t.fit()), 100));
@@ -301,7 +346,14 @@
         const cur = files[b.path], mk = {};
         if (text === cur.saved) for (const n of cur.changed || []) mk[n - cur.start] = {cls: "chg", title: "Changed since you last looked"};
         const lines = text.split("\n");
-        for (const x of cur.bites || []) lines.forEach((l, j) => { if (l.includes(x.match)) mk[j] = {cls: "bite", title: x.why}; });
+        if (text === cur.saved) lines.forEach((_, j) => {
+          const sourceIndex = cur.start - 1 + j;
+          const importance = (cur.lineImportance || [])[sourceIndex];
+          if (importance) mk[j] = {cls: "importance-" + importance,
+            title: importanceLabel(importance) + ((cur.lineConfidence || [])[sourceIndex] === "low" ? " (draft)" : "") + ": " +
+              ((cur.lineReasons || [])[sourceIndex] || "Supporting code structure or data flow.")};
+        });
+        for (const x of cur.bites || []) lines.forEach((l, j) => { if (l.includes(x.match)) mk[j] = {cls: "importance-" + (x.importance || "critical"), title: importanceLabel(x.importance || "critical") + ": " + x.why}; });
         return mk;
       };
       const ed = codeEditor(f.text, {start: f.start, numbers: true, marks,
@@ -326,7 +378,7 @@
         h("button", {class: "runbtn", title: "Save the file (Shift+Enter)", onclick: () => saveFile(b.path, b.range)}, "▶"),
         h("span", {class: "count"}, !fileRuns.has(b.path) ? "[ ]" :
           fileRuns.get(b.path).state === "saving" ? "[*]" : fileRuns.get(b.path).ok ? "[✓]" : "[!]")),
-      h("div", {class: "box"}, bar, body, fileNotes(b), fileResult(b.path)), sideView(b, i), tools(i));
+      h("div", {class: "box"}, bar, body, fileResult(b.path)), sideView(b, i), tools(i));
   }
 
   // To the right of a file or code block: an arrow that opens its visual panel.
@@ -366,34 +418,53 @@
     return h("div", {class: "side open"}, tab, panel);
   }
 
-  // Under a file block: what changed since you last looked, and the lines that can change the result.
-  function fileNotes(b) {
-    const f = files[b.path];
-    if (!f || f.missing) return null;
-    const rows = [];
-    const nCh = (f.changed || []).length, nRm = f.removed || 0;
-    if ((nCh || nRm) && f.text === f.saved) {
-      const what = [nCh && `${nCh} line${nCh === 1 ? "" : "s"} new or changed`, nRm && `${nRm} removed`].filter(Boolean).join(", ");
-      rows.push(h("div", {class: "note chg"}, `◆ Since you last looked: ${what}`,
-        h("button", {class: "tbtn", onclick: () => vscode.postMessage({type: "markSeen", path: b.path})}, "Mark as seen")));
-    }
-    const lines = f.text.split("\n");
-    for (const x of f.bites || []) {
-      const j = lines.findIndex(l => l.includes(x.match));
-      if (j < 0) continue;
-      rows.push(h("div", {class: "note bite"},
-        h("button", {class: "lineref", title: "Open at this line",
-          onclick: () => vscode.postMessage({type: "open", path: b.path, line: f.start + j})}, `line ${f.start + j}`),
-        " " + x.why));
-    }
-    for (const x of f.lostBites || [])
-      rows.push(h("div", {class: "note lost"}, `⚠ A marked line is gone from the file: “${x.match}”. ${x.why}`));
-    return rows.length ? h("div", {class: "notes"}, rows) : null;
-  }
-
   function codeView(b, i) {
     const c = counts.get(b.key);
-    const ed = codeEditor(b.src, {
+    const savedCode = b.src;
+    const directPlan = cellImportance[savedCode];
+    const normalized = source => source.replace(/\r\n/g, "\n").split("\n");
+    const codeLines = normalized(b.src);
+    const trimIndent = lines => {
+      const nonblank = lines.filter(line => line.trim());
+      const indent = nonblank.length ? Math.min(...nonblank.map(line => line.match(/^\s*/)[0].length)) : 0;
+      return lines.map(line => line.slice(Math.min(indent, line.length)));
+    };
+    const comparableCode = trimIndent(codeLines);
+    const sourcePlan = Object.entries(importance).reduce((found, [path, plan]) => {
+      if (found || !plan || !plan.lines) return found;
+      const source = files[path] && files[path].text;
+      if (!source) return found;
+      const sourceLines = normalized(source);
+      for (let start = 0; start <= sourceLines.length - codeLines.length; start++) {
+        const excerpt = sourceLines.slice(start, start + codeLines.length);
+        const comparableSource = trimIndent(excerpt);
+        if (comparableCode.every((line, offset) => line === comparableSource[offset])) return {plan, start};
+      }
+      return found;
+    }, null);
+    const marks = text => {
+      const result = {};
+      if (text !== savedCode) return result;
+      if (directPlan) {
+        codeLines.forEach((_, index) => {
+          const level = directPlan.lines[index];
+          if (level) result[index] = {cls: "importance-" + level,
+            title: importanceLabel(level) + ((directPlan.confidence || [])[index] === "low" ? " (draft)" : "") + ": " +
+              ((directPlan.reasons || [])[index] || "Supports this notebook step.")};
+        });
+        return result;
+      }
+      if (!sourcePlan) return result;
+      codeLines.forEach((_, index) => {
+        const sourceIndex = sourcePlan.start + index;
+        const level = sourcePlan.plan.lines[sourceIndex];
+        if (level) result[index] = {cls: "importance-" + level,
+          title: importanceLabel(level) + ((sourcePlan.plan.confidence || [])[sourceIndex] === "low" ? " (draft)" : "") + ": " +
+            ((sourcePlan.plan.reasons || [])[sourceIndex] || "Supporting code structure or data flow.")};
+      });
+      return result;
+    };
+    const ed = codeEditor(b.src, {marks,
       onInput: v => { b.src = v; push(); setStale(b); },
       onKey: e => {
         if (e.key === "Enter" && (e.shiftKey || e.metaKey || e.ctrlKey)) {
@@ -435,7 +506,22 @@
     if (o.kind === "warn") return h("span", {class: "warn"}, o.text);
     if (o.kind === "error") return h("span", {class: "error"}, stripAnsi(o.traceback.join("\n")) + "\n");
     const d = o.data;
-    if (d["image/png"]) return h("img", {src: "data:image/png;base64," + d["image/png"]});
+    if (d["image/png"]) {
+      const src = "data:image/png;base64," + d["image/png"];
+      const open = () => {
+        const overlay = h("div", {class: "plot-lightbox", tabindex: "-1"});
+        const close = () => overlay.remove();
+        overlay.append(h("button", {class: "plot-close", onclick: close}, "Close"),
+          h("img", {src, alt: "Expanded plot"}));
+        overlay.addEventListener("click", e => { if (e.target === overlay) close(); });
+        overlay.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+        document.body.append(overlay);
+        overlay.focus();
+      };
+      return h("div", {class: "plot-output"},
+        h("img", {src, alt: "Plot output", title: "Click to enlarge", onclick: open}),
+        h("button", {class: "plot-open", onclick: open}, "Enlarge"));
+    }
     if (d["text/html"]) { const el = h("div", {class: "html"}); el.innerHTML = [].concat(d["text/html"]).join(""); return el; }
     return h("span", {}, [].concat(d["text/plain"] || "").join("") + "\n");
   }
@@ -606,6 +692,8 @@
           else f.saved = f.text;
         }
         files = m.files;
+        importance = m.importance || {};
+        cellImportance = m.cellImportance || {};
         colors = m.colors || {};
         applyColors();
         // Keep keys (and so outputs) for blocks that stayed in place.

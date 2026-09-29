@@ -89,6 +89,14 @@ class NotebookEditor {
       try { return JSON.parse(fs.readFileSync(bitesPath, "utf8")); } catch { return []; }
     };
     let bites = loadBites();
+    const importancePath = path.join(root, ".regain", "line-importance.json");
+    const loadImportance = () => {
+      try { return JSON.parse(fs.readFileSync(importancePath, "utf8")); }
+      catch { return {}; }
+    };
+    let importanceData = loadImportance();
+    let importance = importanceData.files || {};
+    let cellImportance = importanceData.cells || {};
 
     // What each file looked like when you last saw it (first shown, saved here, or "Mark as seen").
     const ws = this.context.workspaceState;
@@ -106,9 +114,15 @@ class NotebookEditor {
       c.bites = []; c.lostBites = [];
       for (const x of bites) {
         if (!x.file || !samePath(path.resolve(root, x.file), full) || !x.match) continue;
-        const bite = {match: x.match, why: x.why || ""};
+        const bite = {match: x.match, why: x.why || "", importance: ["critical", "important", "supporting"].includes(x.importance) ? x.importance : "critical"};
         c.bites.push(bite);
         if (!whole.includes(x.match)) c.lostBites.push(bite);
+      }
+      const plan = importance[b.path];
+      if (plan && crypto.createHash("sha256").update(whole).digest("hex") === plan.sha256) {
+        c.lineImportance = plan.lines;
+        c.lineReasons = plan.reasons || [];
+        c.lineConfidence = plan.confidence || [];
       }
       const seen = ws.get(seenKey(full));
       c.changed = []; c.removed = 0;
@@ -176,9 +190,17 @@ class NotebookEditor {
       ].join("\n");
     };
 
+    const cellPlans = () => {
+      const plans = {};
+      for (const b of blocks) if (b.kind === "code") {
+        const digest = crypto.createHash("sha256").update(b.src).digest("hex");
+        if (cellImportance[digest]) plans[b.src] = cellImportance[digest];
+      }
+      return plans;
+    };
     const sendAll = () => post({type: "render", blocks, files: files(), root, visuals: visuals(),
       name: path.basename(document.uri.fsPath), outputs: savedOut,
-      colors: this.context.globalState.get(COLORS_KEY, {})});
+      colors: this.context.globalState.get(COLORS_KEY, {}), importance, cellImportance: cellPlans()});
 
     // Keep the .regain.md in step with the blocks, and saved.
     const commit = async () => {
@@ -224,6 +246,12 @@ class NotebookEditor {
     const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, "**/*.{py,yaml,yml,json,toml,cfg,txt,sh,md,svg,png,jpg,jpeg,gif,webp}"));
     const onFile = uri => {
       if (samePath(uri.fsPath, bitesPath)) { bites = loadBites(); return sendAll(); }
+      if (samePath(uri.fsPath, importancePath)) {
+        importanceData = loadImportance();
+        importance = importanceData.files || {};
+        cellImportance = importanceData.cells || {};
+        return sendAll();
+      }
       if (blocks.some(b => (b.visual || []).some(v => samePath(path.resolve(pageDir, v), uri.fsPath)))) return sendAll();
       const b = blocks.find(x => x.kind === "file" && samePath(path.resolve(root, x.path), uri.fsPath));
       if (!b) return;
