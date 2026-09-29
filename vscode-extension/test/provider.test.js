@@ -13,7 +13,7 @@ const fake = {
   workspace: {
     getConfiguration: () => ({get: () => ""}),
     getWorkspaceFolder: () => null,
-    createFileSystemWatcher: () => ({onDidChange() {}, onDidCreate() {}, onDidDelete() {}, dispose() {}}),
+    createFileSystemWatcher: () => ({onDidChange: f => { listeners.fileChange = f; }, onDidCreate() {}, onDidDelete() {}, dispose() {}}),
     onDidChangeTextDocument: f => { listeners.docChange.push(f); return {dispose() {}}; },
     applyEdit: async e => { doc.text = e.text; return true; },
   },
@@ -24,7 +24,17 @@ const fake = {
 };
 const load = Module._load;
 Module._load = (req, ...rest) => req === "vscode" ? fake : load(req, ...rest);
-const {NotebookEditor} = require("../notebook/provider");
+const {NotebookEditor, envLabel, samePath} = require("../notebook/provider");
+
+// interpreter names on every platform
+assert.strictEqual(envLabel("/Users/a/anaconda3/envs/3dc/bin/python"), "3dc");
+assert.strictEqual(envLabel("/Users/a/anaconda3/bin/python"), "anaconda3");
+assert.strictEqual(envLabel("/home/a/proj/.venv/bin/python3"), ".venv");
+assert.strictEqual(envLabel("C:\\Users\\a\\anaconda3\\envs\\3dc\\python.exe"), "3dc");
+assert.strictEqual(envLabel("C:\\Users\\a\\proj\\.venv\\Scripts\\python.exe"), ".venv");
+assert.strictEqual(envLabel("C:\\Python312\\python.exe"), "Python312");
+assert.strictEqual(envLabel("python3"), "python3");
+if (process.platform === "win32") assert.ok(samePath("c:\\x\\y.py", "C:\\x\\y.py"), "drive letter case");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "regain-prov-"));
 fs.mkdirSync(path.join(root, ".regain"));
@@ -66,6 +76,15 @@ const context = {extensionUri: {fsPath: __dirname}, globalState: {get: (k, d) =>
   await send({type: "markSeen", path: "src/m.py"});
   assert.deepStrictEqual(last("annot").content.changed, []);
 
+  // a change reported by the watcher reaches the page (on Windows with a lower-case drive letter)
+  const mPy = path.join(root, "src/m.py");
+  const reported = process.platform === "win32" ? mPy[0].toLowerCase() + mPy.slice(1) : mPy;
+  fs.writeFileSync(mPy, "a = 1\nb = a * 30\nnew = 10\n");
+  const before = posted.length;
+  listeners.fileChange({fsPath: reported});
+  assert.ok(posted.slice(before).some(m => m.type === "file" && m.path === "src/m.py"), "watcher change reaches the page");
+  await send({type: "markSeen", path: "src/m.py"});
+
   // your own save counts as seen
   fs.writeFileSync(path.join(root, "src/m.py"), "a = 2\nb = a * 30\nnew = 9\n");
   await send({type: "writeFile", path: "src/m.py", range: null, text: "a = 3\nb = a * 30\nnew = 9\n"});
@@ -73,6 +92,12 @@ const context = {extensionUri: {fsPath: __dirname}, globalState: {get: (k, d) =>
   assert.ok(saved.ok);
   assert.deepStrictEqual([saved.content.changed, saved.content.removed], [[], 0]);
   assert.strictEqual(fs.readFileSync(path.join(root, "src/m.py"), "utf8"), "a = 3\nb = a * 30\nnew = 9\n");
+
+  // a CRLF file is shown with \n and written back with \r\n
+  const crlf = path.join(root, "src/w.py");
+  fs.writeFileSync(crlf, "x = 1\r\ny = 2\r\n");
+  await send({type: "writeFile", path: "src/w.py", range: null, text: "x = 1\ny = 3\n"});
+  assert.strictEqual(fs.readFileSync(crlf, "utf8"), "x = 1\r\ny = 3\r\n");
 
   // outputs are kept next to the page, by source, and dropped when the block goes away
   await send({type: "saveOutput", src: "print(1)", entry: {outputs: [{kind: "stream", name: "stdout", text: "1\n"}], vars: [], time: "t"}});
@@ -87,7 +112,7 @@ const context = {extensionUri: {fsPath: __dirname}, globalState: {get: (k, d) =>
   // visuals: a request for the agent, an image added from disk, and serving it to the page
   await send({type: "copyVisualRequest", index: 1});
   assert.ok(fake.clipboard.includes("the file src/m.py"));
-  assert.ok(fake.clipboard.includes("Save it as .regain/visuals/m.svg"));
+  assert.ok(fake.clipboard.includes("Save it as .regain/visuals/m.svg"), "forward slashes on every platform");
   assert.ok(fake.clipboard.endsWith("```file src/m.py"), "ends with the fence to extend");
   const pic = path.join(os.tmpdir(), "regain-pic.png");
   fs.writeFileSync(pic, "png");

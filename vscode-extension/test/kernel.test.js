@@ -1,7 +1,7 @@
 // Runs kernel.js against a real kernel, with a stand-in for the vscode module.
 const Module = require("module");
 const assert = require("assert");
-const python = process.env.REGAIN_PYTHON || "python3";
+const python = process.env.REGAIN_PYTHON || (process.platform === "win32" ? "python" : "python3");
 const fake = {workspace: {getConfiguration: () => ({get: () => python})}, extensions: {getExtension: () => null}};
 const load = Module._load;
 Module._load = (req, ...rest) => req === "vscode" ? fake : load(req, ...rest);
@@ -22,6 +22,11 @@ const {Kernel} = require("../notebook/kernel");
   await doneOf(a);
   assert.ok(events.some(e => e.id === a && e.type === "stream" && e.text === "hi\n"));
   assert.ok(events.some(e => e.id === a && e.type === "result" && e.data["text/plain"] === "42"));
+
+  // non-ASCII code and output survive the pipes (Windows defaults to the ANSI code page)
+  const u = await k.exec("print('ok · → שלום')");
+  await doneOf(u);
+  assert.ok(events.some(e => e.id === u && e.type === "stream" && e.text === "ok · → שלום\n"), "UTF-8");
 
   // an edited module is picked up without restarting the kernel
   const fs = require("fs"), os = require("os"), path = require("path");

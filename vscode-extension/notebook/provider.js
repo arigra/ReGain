@@ -18,13 +18,31 @@ function projectRoot(uri) {
 }
 
 // A short name for an interpreter: the conda env, the venv, or its folder.
+// Handles both /env/bin/python and C:\env\Scripts\python.exe (or C:\env\python.exe).
 function envLabel(python) {
-  const parts = python.split(path.sep);
+  const parts = python.split(/[\\/]/).filter(Boolean);
   const envs = parts.lastIndexOf("envs");
   if (envs >= 0 && parts[envs + 1]) return parts[envs + 1];
-  const bin = parts.lastIndexOf("bin");
-  return bin > 0 ? parts[bin - 1] : python;
+  const bin = Math.max(parts.lastIndexOf("bin"), parts.lastIndexOf("Scripts"));
+  if (bin > 0) return parts[bin - 1];
+  return parts.length > 1 ? parts[parts.length - 2] : python;
 }
+
+// Same file? On Windows VS Code reports "c:\..." where path.resolve gives "C:\...".
+function samePath(a, b) {
+  const norm = p => process.platform === "win32" ? path.resolve(p).toLowerCase() : path.resolve(p);
+  return norm(a) === norm(b);
+}
+
+// Files are shown and diffed with "\n"; a file that used "\r\n" is written back with it.
+function readText(full) {
+  const raw = fs.readFileSync(full, "utf8");
+  return {text: raw.replace(/\r\n/g, "\n"), eol: raw.includes("\r\n") ? "\r\n" : "\n"};
+}
+function writeText(full, text, eol) {
+  fs.writeFileSync(full, eol === "\r\n" ? text.replace(/\n/g, "\r\n") : text);
+}
+const posix = p => p.split(path.sep).join("/");
 
 async function knownPythons() {
   try {
@@ -41,7 +59,7 @@ async function knownPythons() {
 function readFileBlock(root, b) {
   const full = path.resolve(root, b.path);
   if (!fs.existsSync(full)) return {missing: true};
-  const text = fs.readFileSync(full, "utf8");
+  const {text} = readText(full);
   if (!b.range) return {text, start: 1};
   const lines = text.split("\n");
   return {text: lines.slice(b.range[0] - 1, b.range[1]).join("\n"), start: b.range[0]};
@@ -80,14 +98,14 @@ class NotebookEditor {
       const c = readFileBlock(root, b);
       if (c.missing) return c;
       const full = path.resolve(root, b.path);
-      const whole = fs.readFileSync(full, "utf8");
+      const whole = readText(full).text;
       const lines = whole.split("\n");
       const [lo, hi] = b.range || [1, lines.length];
       // The view finds the lines itself (they move while you type); here we only
       // report matches that are gone from the whole file.
       c.bites = []; c.lostBites = [];
       for (const x of bites) {
-        if (!x.file || path.resolve(root, x.file) !== full || !x.match) continue;
+        if (!x.file || !samePath(path.resolve(root, x.file), full) || !x.match) continue;
         const bite = {match: x.match, why: x.why || ""};
         c.bites.push(bite);
         if (!whole.includes(x.match)) c.lostBites.push(bite);
@@ -138,8 +156,8 @@ class NotebookEditor {
     const fence = b => serialize([b]).split("\n")[0];
     const visualRequest = i => {
       const b = blocks[i];
-      const pageRel = path.relative(root, document.uri.fsPath);
-      const dirRel = path.relative(root, pageDir);
+      const pageRel = posix(path.relative(root, document.uri.fsPath));
+      const dirRel = posix(path.relative(root, pageDir));
       const n = blocks.slice(0, i + 1).filter(x => x.kind === b.kind).length;
       const base = b.kind === "file"
         ? path.basename(b.path).replace(/\.[^.]+$/, "") + (b.range ? `-${b.range[0]}-${b.range[1]}` : "")
@@ -152,7 +170,7 @@ class NotebookEditor {
       return [
         `Make a visual that explains what ${target} does, so I can come back to it later or explain it to someone else.`,
         `A clear diagram (the flow, what goes in and out, the shapes of the data) rather than a chart of made-up numbers. Mark anything you are not sure about.`,
-        `Save it as ${path.join(dirRel, name)} (SVG, readable on both light and dark backgrounds).`,
+        `Save it as ${path.posix.join(dirRel, name)} (SVG, readable on both light and dark backgrounds).`,
         `Then link it in ${pageRel}: add visual=${name} to the end of this block's opening line:`,
         fence(b),
       ].join("\n");
@@ -205,9 +223,9 @@ class NotebookEditor {
 
     const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, "**/*.{py,yaml,yml,json,toml,cfg,txt,sh,md,svg,png,jpg,jpeg,gif,webp}"));
     const onFile = uri => {
-      if (uri.fsPath === bitesPath) { bites = loadBites(); return sendAll(); }
-      if (blocks.some(b => (b.visual || []).some(v => path.resolve(pageDir, v) === uri.fsPath))) return sendAll();
-      const b = blocks.find(x => x.kind === "file" && path.resolve(root, x.path) === uri.fsPath);
+      if (samePath(uri.fsPath, bitesPath)) { bites = loadBites(); return sendAll(); }
+      if (blocks.some(b => (b.visual || []).some(v => samePath(path.resolve(pageDir, v), uri.fsPath)))) return sendAll();
+      const b = blocks.find(x => x.kind === "file" && samePath(path.resolve(root, x.path), uri.fsPath));
       if (!b) return;
       const content = fileInfo(b);
       if (selfWrites.get(b.path) === content.text) return;   // our own write echoing back
@@ -243,8 +261,9 @@ class NotebookEditor {
           const full = path.resolve(root, m.path);
           try {
             let text = m.text;
+            const eol = fs.existsSync(full) ? readText(full).eol : "\n";
             if (b.range) {
-              const lines = fs.readFileSync(full, "utf8").split("\n");
+              const lines = readText(full).text.split("\n");
               const n = m.text.split("\n").length;
               lines.splice(b.range[0] - 1, b.range[1] - b.range[0] + 1, ...m.text.split("\n"));
               text = lines.join("\n");
@@ -257,7 +276,7 @@ class NotebookEditor {
               }
             }
             selfWrites.set(m.path, m.text);
-            fs.writeFileSync(full, text);
+            writeText(full, text, eol);
             await ws.update(seenKey(full), text);    // you wrote it, so you have seen it
             const blk = blocks.find(x => x.kind === "file" && x.path === m.path) || b;
             post({type: "saved", path: m.path, ok: true, lines: text.split("\n").length, content: fileInfo(blk)});
@@ -318,7 +337,7 @@ class NotebookEditor {
 
         case "markSeen": {
           const full = path.resolve(root, m.path);
-          if (fs.existsSync(full)) await ws.update(seenKey(full), fs.readFileSync(full, "utf8"));
+          if (fs.existsSync(full)) await ws.update(seenKey(full), readText(full).text);
           const b = blocks.find(x => x.kind === "file" && x.path === m.path);
           if (b) post({type: "annot", path: m.path, content: fileInfo(b)});
           break;
@@ -382,4 +401,4 @@ class NotebookEditor {
   }
 }
 
-module.exports = {NotebookEditor};
+module.exports = {NotebookEditor, envLabel, samePath};

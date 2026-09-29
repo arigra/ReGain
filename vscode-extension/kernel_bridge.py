@@ -123,6 +123,9 @@ def run(kc, rid, code):
 
 
 def main():
+    # JSON lines are UTF-8 on every platform (Windows pipes default to the ANSI code page).
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")
     cwd = sys.argv[1]
     try:
         k = dict(zip(("km", "kc"), start(cwd)))

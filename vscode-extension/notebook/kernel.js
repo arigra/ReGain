@@ -18,7 +18,7 @@ async function pythonFor(uri) {
       if (env && env.path) return env.path;
     }
   } catch (e) { /* fall through */ }
-  return "python3";
+  return process.platform === "win32" ? "python" : "python3";
 }
 
 class Kernel {
@@ -37,7 +37,9 @@ class Kernel {
     this.ready = (async () => {
       const python = this.python || await pythonFor(this.uri);
       this.onEvent({type: "status", state: "starting", python});
-      const proc = cp.spawn(python, ["-u", BRIDGE, this.cwd], {cwd: this.cwd});
+      // UTF-8 both ways: on Windows a pipe would otherwise use the ANSI code page.
+      const proc = cp.spawn(python, ["-u", BRIDGE, this.cwd],
+        {cwd: this.cwd, env: {...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1"}});
       this.proc = proc;
       let stderr = "";
       proc.stderr.on("data", d => { stderr = (stderr + d).slice(-4000); });
