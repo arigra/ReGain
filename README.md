@@ -33,7 +33,7 @@ In a notebook page, ▶ next to a code block runs it, ▶ next to a file block s
 
 File blocks grow with their contents up to a window-relative height, then scroll.
 See [line importance in other projects](docs/line-importance.md) for the Python
-generator and agent review workflow. Its first pass is a draft; the agent
+and C++ generator and agent review workflow. Its first pass is a draft; the agent
 must trace project behavior to give reliable explanations.
 
 ## If something does not work

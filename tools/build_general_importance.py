@@ -1,4 +1,4 @@
-"""Build a portable ReGain line map for Python files in .regain.md notebooks.
+"""Build a portable ReGain line map for Python and C++ project notebooks.
 
 The first pass describes syntax and data flow. An agent can add project-aware
 reasons to .regain/importance-reviews.json after reading the whole project.
@@ -12,8 +12,15 @@ import json
 import re
 from pathlib import Path
 
+try:
+    from cpp_importance import analyze_cpp, promote_cpp_definitions
+except ModuleNotFoundError:
+    # Older Python-only projects may have copied this script without the C++ helper.
+    analyze_cpp = promote_cpp_definitions = None
+
 LEVELS = {"critical", "important", "supporting"}
 LEVEL_RANK = {"supporting": 0, "important": 1, "critical": 2}
+CPP_SUFFIXES = {".cpp", ".cc", ".cxx", ".h", ".hpp", ".hh", ".hxx"}
 DISPLAY = re.compile(r"(?:^|\.)(?:print|display|show|show_table|plot|scatter|bar|hist|legend|grid|set|set_title|set_xlabel|set_ylabel|subplots|figure|savefig|imshow|step|stackplot|axhline|axvspan|colorbar)$")
 
 
@@ -261,7 +268,7 @@ def main():
                 if not target.is_relative_to(root):
                     warnings.append(f"File block escapes project root: {value}")
                     continue
-                if target.suffix.lower() not in {".py", ".yaml", ".yml", ".json", ".toml", ".cfg", ".ini"} or not target.is_file():
+                if target.suffix.lower() not in ({".py", ".yaml", ".yml", ".json", ".toml", ".cfg", ".ini"} | CPP_SUFFIXES) or not target.is_file():
                     warnings.append(f"Unsupported or missing file block: {value}")
                     continue
                 key = target.relative_to(root).as_posix()
@@ -282,7 +289,14 @@ def main():
                 group[key]["visible"].update(visible)
                 continue
             try:
-                plan = analyze(source) if kind == "cell" or target.suffix.lower() == ".py" else analyze_config(source)
+                if kind == "cell" or target.suffix.lower() == ".py":
+                    plan = analyze(source)
+                elif target.suffix.lower() in CPP_SUFFIXES:
+                    if analyze_cpp is None:
+                        parser.error("Copy cpp_importance.py beside this generator to map C++ files")
+                    plan = analyze_cpp(source)
+                else:
+                    plan = analyze_config(source)
             except SyntaxError as error:
                 warnings.append(f"Cannot parse {key}: {error}")
                 continue
@@ -297,6 +311,8 @@ def main():
         for key, plan in group.items():
             if kind == "cells" or Path(key).suffix.lower() == ".py":
                 promote_definitions(plan)
+            elif Path(key).suffix.lower() in CPP_SUFFIXES:
+                promote_cpp_definitions(plan)
     summary = []
     for kind, group in plans.items():
         for key, plan in group.items():
@@ -326,6 +342,8 @@ effect has been traced. Report unresolved questions instead of guessing.
 Definition headers inherit the strongest body color as a draft. Review each
 function or class as a whole: a helper can stay green even if it contains a
 branch, and a public entry point may matter more than any one body line.
+The C++ first pass uses a lightweight scanner, not a compiler. Check macros,
+templates, overloads, build flags, and call sites before trusting its map.
 
 Write corrections to `.regain/importance-reviews.json` as a JSON array. Each
 entry needs `file` (relative to project root) or `cell_sha256`, `sha256`, an

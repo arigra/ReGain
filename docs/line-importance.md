@@ -1,10 +1,10 @@
-# ReGain line explanations for another Python project
+# ReGain line explanations for Python and C++ projects
 
 ReGain's VS Code extension reads a project-local `.regain/line-importance.json`.
 The extension draws line colors and shows short explanations on hover. The
-portable generator makes an initial map from Python syntax; an agent then
-reads the project and corrects the meanings. No phone-use code or names are
-required by this workflow.
+portable generator makes an initial map from Python syntax or a conservative
+C++ scanner; an agent then reads the project and corrects the meanings. No
+phone-use code or names are required by this workflow.
 
 The colors follow traffic lights: **red** is critical, **yellow** is
 important, and **green** can be skipped on a first reading. Green code may
@@ -14,7 +14,7 @@ still be required when running the project.
 
 1. Install ReGain from this repository with `setup.cmd` on Windows or
    `bash setup.sh` on macOS/Linux. Copy `tools/build_general_importance.py`
-   into the other project's `.regain/tooling/`.
+   and `tools/cpp_importance.py` into the other project's `.regain/tooling/`.
    Python 3.9 or newer and the standard library are enough for the generator.
 2. Ask an engineering agent to read the project first, identify its main
    flow, and create a `.regain/*.regain.md` notebook. Have it link the files
@@ -59,20 +59,26 @@ still be required when running the project.
 
 ## What transfers, and what needs an agent
 
-The extension, JSON format, Python syntax pass, and review workflow work
+The extension, JSON format, draft syntax pass, and review workflow work
 across projects. Syntax can identify conditions, returns, calculations, and
 display calls, but it cannot establish product importance. For example, an
 `if` may be a decision gate or only control a progress message. The agent
 must trace that line's effect and write the specific explanation. An agent
 can still be uncertain; it should say so instead of inventing a reason.
 
-The generator handles Python file blocks and `python` cells, plus draft
+The generator handles Python and C++ file blocks and `python` cells, plus draft
 line explanations for YAML, JSON, TOML, CFG, and INI file blocks. For ranged
 file blocks, only visible lines count toward the review requirement, although
 the agent should read the full file for context. Other languages need a parser
 or agent-authored map. ReGain
 does not yet launch an agent automatically; the generated review document is
 the handoff that works with any engineering agent.
+
+The C++ scan handles `.cpp`, `.cc`, `.cxx`, `.h`, `.hpp`, `.hh`, and `.hxx`.
+It recognizes likely control flow and definition bodies without invoking a
+compiler. Macros, templates, overloads, and active build flags need direct
+code review. ReGain highlights C++ file blocks, but only `python` fences run
+in the notebook; a C++ build or executable remains an external step.
 
 Function and class definition lines take the strongest importance found in
 their bodies, so a definition with important work starts yellow and one with a

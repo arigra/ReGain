@@ -1,4 +1,4 @@
-// View for a .regain.md: text, file blocks (the real .py on disk) and code blocks.
+// View for a .regain.md: text, source file blocks and runnable Python blocks.
 (() => {
   const vscode = acquireVsCodeApi();
   const app = document.getElementById("app");
@@ -121,7 +121,7 @@
     return ta;
   }
 
-  // ---------- Python highlighting ----------
+  // ---------- Source highlighting ----------
   const KW = new Set(("False None True and as assert async await break class continue def del elif else except " +
     "finally for from global if import in is lambda nonlocal not or pass raise return try while with yield").split(" "));
   const BUILTIN = new Set(("print len range enumerate zip map filter sum min max abs int float str bool list dict set " +
@@ -133,17 +133,33 @@
     /(\b\d[\d_]*(?:\.\d*)?(?:[eE][+-]?\d+)?j?\b|\.\d+\b)/.source,              // number
     /([A-Za-z_]\w*)/.source,                                                   // name
   ].join("|"), "g");
-  function highlightLines(src) {
+  const CPP_KW = new Set(("alignas auto bool break case catch char class const constexpr continue decltype default " +
+    "delete do double else enum explicit extern false final float for friend if inline int long namespace " +
+    "new noexcept nullptr operator override private protected public return short signed sizeof static " +
+    "struct switch template this throw true try typedef typename union unsigned using virtual void volatile while").split(" "));
+  const CPP_TOKEN = new RegExp([
+    /(^[ \t]*#[^\n]*)/.source,                                        // preprocessor
+    /(\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$))/.source,           // comment
+    /("(?:[^"\\\n]|\\.)*"?|'(?:[^'\\\n]|\\.)*'?)/.source, // literal
+    /(\b\d[\d_]*(?:\.\d*)?(?:[eE][+-]?\d+)?\b|\.\d+\b)/.source,
+    /([A-Za-z_]\w*)/.source,
+  ].join("|"), "gm");
+  function highlightLines(src, language = "python") {
     const lines = [[]];
     let last = 0, prev = "";
+    const cpp = language === "cpp";
     const add = (cls, text) => text.split("\n").forEach((part, j) => {
       if (j) lines.push([]);
       if (part) lines[lines.length - 1].push(cls ? `<span class="${cls}">${esc(part)}</span>` : esc(part));
     });
-    for (const m of src.matchAll(TOKEN)) {
+    for (const m of src.matchAll(cpp ? CPP_TOKEN : TOKEN)) {
       if (m.index > last) add("", src.slice(last, m.index));
-      let cls = m[1] ? "cm" : m[2] ? "st" : m[3] ? "dc" : m[4] ? "nu" : "";
-      if (m[5]) cls = KW.has(m[5]) ? "kw" : (prev === "def" || prev === "class") ? "fn" : BUILTIN.has(m[5]) ? "bi" : "";
+      let cls = cpp
+        ? (m[1] ? "dc" : m[2] ? "cm" : m[3] ? "st" : m[4] ? "nu" : "")
+        : (m[1] ? "cm" : m[2] ? "st" : m[3] ? "dc" : m[4] ? "nu" : "");
+      if (m[5]) cls = cpp
+        ? (CPP_KW.has(m[5]) ? "kw" : (prev === "class" || prev === "struct" || prev === "enum") ? "fn" : "")
+        : (KW.has(m[5]) ? "kw" : (prev === "def" || prev === "class") ? "fn" : BUILTIN.has(m[5]) ? "bi" : "");
       prev = m[5] || "";
       add(cls, m[0]);
       last = m.index + m[0].length;
@@ -154,7 +170,7 @@
 
   // A code editor: a transparent textarea over a highlighted copy of the same text,
   // with line numbers and per-line marks ({line index: {cls, title}}).
-  function codeEditor(value, {start = 1, numbers = false, marks = () => ({}), onInput, onKey}) {
+  function codeEditor(value, {start = 1, numbers = false, language = "python", marks = () => ({}), onInput, onKey}) {
     const hl = h("pre", {class: "hl", "aria-hidden": "true"});
     const nums = numbers ? h("div", {class: "nums", "aria-hidden": "true"}) : null;
     let el;
@@ -169,7 +185,7 @@
     ta.classList.add("over");
     ta.setAttribute("wrap", "off");
     const paint = () => {
-      const lines = highlightLines(ta.value), mk = marks(ta.value);
+      const lines = highlightLines(ta.value, language), mk = marks(ta.value);
       const cls = i => mk[i] ? " " + mk[i].cls : "";
       hl.innerHTML = lines.map((l, i) => {
         const mark = mk[i];
@@ -356,7 +372,8 @@
         for (const x of cur.bites || []) lines.forEach((l, j) => { if (l.includes(x.match)) mk[j] = {cls: "importance-" + (x.importance || "critical"), title: importanceLabel(x.importance || "critical") + ": " + x.why}; });
         return mk;
       };
-      const ed = codeEditor(f.text, {start: f.start, numbers: true, marks,
+      const language = /\.(?:cpp|cc|cxx|h|hpp|hh|hxx)$/i.test(b.path) ? "cpp" : "python";
+      const ed = codeEditor(f.text, {start: f.start, numbers: true, language, marks,
         onInput: v => {
           files[b.path] = {...files[b.path], text: v};
           setDirty(b.path, v !== files[b.path].saved);

@@ -2,7 +2,7 @@
   "name": "regain",
   "displayName": "ReGain",
   "description": "Opens a project's .regain pages with runnable Python blocks and project-reviewed line explanations.",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "publisher": "arigra",
   "license": "UNLICENSED",
   "engines": {

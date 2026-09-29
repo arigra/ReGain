@@ -22,7 +22,8 @@ Two views, both opened by clicking the file:
   needs `jupyter_client` and `ipykernel`.
 
   Also in these pages:
-  - Python highlighting in file and code blocks.
+  - Python highlighting in Python files and runnable blocks; C++ highlighting
+    in C++ source file blocks.
   - Red, yellow, and green lines from `.regain/line-importance.json` mark
     critical, important, and first-pass skippable code. Hover for the reason.
     The same colors work in source file blocks and runnable Python blocks.
