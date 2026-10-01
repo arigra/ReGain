@@ -74,7 +74,7 @@ const context = {extensionUri: {fsPath: __dirname}, globalState: {get: (k, d) =>
   f = last("render").files["src/m.py"];
   assert.deepStrictEqual([f.changed, f.removed], [[3], 1]);
   await send({type: "markSeen", path: "src/m.py"});
-  assert.deepStrictEqual(last("annot").content.changed, []);
+  assert.deepStrictEqual(last("render").files["src/m.py"].changed, []);
 
   // a change reported by the watcher reaches the page (on Windows with a lower-case drive letter)
   const mPy = path.join(root, "src/m.py");
@@ -82,7 +82,7 @@ const context = {extensionUri: {fsPath: __dirname}, globalState: {get: (k, d) =>
   fs.writeFileSync(mPy, "a = 1\nb = a * 30\nnew = 10\n");
   const before = posted.length;
   listeners.fileChange({fsPath: reported});
-  assert.ok(posted.slice(before).some(m => m.type === "file" && m.path === "src/m.py"), "watcher change reaches the page");
+  assert.ok(posted.slice(before).some(m => m.type === "render" && m.files["src/m.py"].text.includes("new = 10")), "watcher change reaches the page");
   await send({type: "markSeen", path: "src/m.py"});
 
   // your own save counts as seen
@@ -129,6 +129,16 @@ const context = {extensionUri: {fsPath: __dirname}, globalState: {get: (k, d) =>
   await send({type: "openVisual", path: "visuals/regain-pic.png"});
   assert.strictEqual(fake.command[0], "vscode.open");
   fs.rmSync(pic);
+
+  // Repeated references to one file keep independent excerpts.
+  await send({type: "setBlocks", rerender: true, blocks: [
+    {kind: "file", path: "src/m.py", range: [1, 1]},
+    {kind: "file", path: "src/m.py", range: [2, 3]},
+  ]});
+  const excerpts = last("render").files["src/m.py"].ranges;
+  assert.strictEqual(excerpts["1-1"].text, "a = 3");
+  assert.strictEqual(excerpts["2-3"].text, "b = a * 30\nnew = 9");
+  assert.strictEqual(excerpts["2-3"].start, 2);
 
   fs.rmSync(root, {recursive: true});
   console.log("provider: all passed");

@@ -34,14 +34,14 @@ assert.strictEqual(serialize(b), doc, "round trip keeps the text");
 assert.deepStrictEqual(parse(serialize(b)), b);
 
 // an empty code block survives, an unclosed fence stays text
-assert.deepStrictEqual(parse("```python\n\n```\n"), [{kind: "code", src: ""}]);
+assert.deepStrictEqual(parse("```python\n\n```\n"), [{kind: "code", language: "python", src: ""}]);
 assert.deepStrictEqual(parse("```python\nx = 1\n").map(x => x.kind), ["text"]);
 assert.deepStrictEqual(parse(""), []);
 // visuals ride on either fence and survive a round trip
 const withVis = "```file src/train.py 10-20 visual=visuals/train.svg\n```\n\n```python visual=visuals/a.svg,visuals/b.png\nx = 1\n```\n";
 const vb = parse(withVis);
 assert.deepStrictEqual(vb[0], {kind: "file", path: "src/train.py", range: [10, 20], visual: ["visuals/train.svg"]});
-assert.deepStrictEqual(vb[1], {kind: "code", src: "x = 1", visual: ["visuals/a.svg", "visuals/b.png"]});
+assert.deepStrictEqual(vb[1], {kind: "code", language: "python", src: "x = 1", visual: ["visuals/a.svg", "visuals/b.png"]});
 assert.strictEqual(serialize(vb), withVis);
 assert.deepStrictEqual(parse("```file src/x.py visual=v.svg\n```\n")[0], {kind: "file", path: "src/x.py", range: null, visual: ["v.svg"]});
 console.log("format: all passed");

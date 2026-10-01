@@ -11,7 +11,26 @@ w.HTMLCanvasElement.prototype.getContext = () => ({set fillStyle(v) { this._v = 
 w.CSS = {escape: s => s};
 w.scrollTo = () => {};
 w.eval(src);
-const send = m => w.dispatchEvent(new w.MessageEvent("message", {data: m}));
+const send = m => {
+  if (m.type === "render") {
+    for (const [path, f] of Object.entries(m.files || {})) {
+      if (f.ranges) continue;
+      const whole = {...f};
+      f.ranges = {};
+      for (const b of m.blocks.filter(b => b.kind === "file" && b.path === path)) {
+        const key = b.range ? b.range.join("-") : "all";
+        f.ranges[key] = f.missing ? {...whole} : {...whole,
+          text: b.range ? whole.text.split("\n").slice(b.range[0] - 1, b.range[1]).join("\n") : whole.text,
+          start: b.range ? b.range[0] : 1};
+      }
+    }
+  }
+  w.dispatchEvent(new w.MessageEvent("message", {data: m}));
+  if (m.type === "render") {
+    for (const button of w.document.querySelectorAll(".file-toggle"))
+      if (button.textContent === "Expand source") button.click();
+  }
+};
 const tick = () => new Promise(r => setTimeout(r, 30));
 const numsOf = sel => [...w.document.querySelectorAll(sel + " .nums .n")].map(n => n.textContent).join("\n");
 const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelectorAll(s)];
@@ -183,27 +202,18 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
   assert.strictEqual($(".code .hl .nu").textContent, "2");
   assert.strictEqual($$(".file .hl .l").length, 5, "one overlay line per text line");
 
-  // red lines: found by text, marked in the text and the numbers, listed under the block
+  // Important lines are marked in the source and line numbers.
   const hlLines = $$(".file .hl .l");
-  assert.ok(hlLines[3].classList.contains("bite"));
-  assert.strictEqual($$(".file .nums .n")[3].getAttribute("title"), "30 sets the peak");
-  assert.strictEqual($(".note.bite").textContent, "line 4 30 sets the peak");
-  $(".note.bite .lineref").click();
-  assert.deepStrictEqual(sent.pop(), {type: "open", path: "src/m.py", line: 4});
-  assert.ok($(".note.lost").textContent.includes("gone()"));
+  assert.ok(hlLines[3].classList.contains("importance-critical"));
+  assert.strictEqual($$(".file .nums .n")[3].getAttribute("title"), "Critical: 30 sets the peak");
 
-  // changes since you last looked
+  // Changes since you last looked retain their own mark.
   assert.ok(hlLines[2].classList.contains("chg"));
-  assert.strictEqual($(".note.chg").firstChild.textContent, "◆ Since you last looked: 1 line new or changed, 1 removed");
-  $(".note.chg button").click();
-  assert.deepStrictEqual(sent.pop(), {type: "markSeen", path: "src/m.py"});
-  send({type: "annot", path: "src/m.py", content: {bites: [{match: "n * 30", why: "30 sets the peak"}], lostBites: [], changed: [], removed: 0}});
-  assert.ok(!$(".note.chg") && !$(".note.lost"));
 
-  // a red line follows its text while you type
+  // The line mark follows its text while you type.
   const mta = $(".file textarea");
   mta.value = "# top\n" + mta.value; mta.dispatchEvent(new w.Event("input"));
-  assert.ok($$(".file .hl .l")[4].classList.contains("bite"));
+  assert.ok($$(".file .hl .l")[4].classList.contains("importance-critical"));
 
   // variables from a run, and the output kept next to the page
   $(".code .runbtn").click();
