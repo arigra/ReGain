@@ -181,7 +181,7 @@ async function overviewPath(root) {
 
 async function showAnalyzing(root, error = "") {
   const file = await overviewPath(root);
-  const message = error ? `Analysis stopped: ${error}` : "Codex is tracing capabilities and accounting for repository files. Large repositories can take a while; progress appears in the ReGain notification.";
+  const message = error ? `Analysis stopped: ${error}` : "ReGain is tracing capabilities and accounting for repository files. Large repositories can take a while; progress appears in the ReGain notification.";
   const safe = message.replace(/[&<>"']/g, char => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[char]));
   await fs.promises.writeFile(file, `<!doctype html><!-- REGAIN_ANALYZING_V1 --><html lang="en"><head><meta charset="utf-8"><title>ReGain analysis</title><style>:root{font-family:system-ui;color-scheme:light dark;background:#10202c;color:#f1f7f8}body{margin:0;padding:clamp(24px,6vw,70px)}main{max-width:700px;margin:auto}small{color:#75d9df;letter-spacing:.15em;font-weight:800}h1{font-size:2.5rem}p{line-height:1.6;color:#b9cbd2}button{background:#153c47;color:#8ee2e4;border:1px solid #5ac7ce;border-radius:9px;padding:10px 15px;font:inherit;cursor:pointer}</style></head><body><main><small>REGAIN · PROJECT ANALYSIS</small><h1>Learning this project</h1><p>${safe}</p>${error ? '<button id="retry">Run analysis again</button>' : ""}</main>${error ? '<script>window.addEventListener("DOMContentLoaded",()=>document.getElementById("retry").addEventListener("click",()=>window.regainApi.postMessage({type:"retryAnalysis"})));</script>' : ""}</body></html>`, "utf8");
   return file;

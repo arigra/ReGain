@@ -24,7 +24,9 @@ The setup installs the ReGain, Python and Claude Code extensions into VS Code, l
 
 ## Use it on a project
 
-1. Click the **ReGain** icon in the VS Code Activity Bar. Choose **Prepare current project** or **Choose a project folder**. Codex traces the selected project in read-only mode, and ReGain turns the result into a capability diagram in `.regain/overview.html`. Select a capability for a second, detailed analysis, source walkthrough, and reviewed line reasons.
+To use Claude Code for automatic analysis, install the [Claude Code CLI](https://code.claude.com/docs/en/overview), then set **ReGain: Analysis Provider** to **Claude Code** in VS Code settings. If `claude` is not on `PATH`, set **ReGain: Claude Executable** to its absolute path. Codex remains the default.
+
+1. Click the **ReGain** icon in the VS Code Activity Bar. Choose **Prepare current project** or **Choose a project folder**. The selected provider traces the project in read-only mode, and ReGain turns the result into a capability diagram in `.regain/overview.html`. Select a capability for a second, detailed analysis, source walkthrough, and reviewed line reasons.
 2. Click `.regain/overview.html` for the big picture, or a `.regain/*.regain.md` page for the file-by-file view.
 3. On a notebook page, pick the Python with the kernel button at the top right (it needs the project's packages, plus `ipykernel` and `jupyter_client`), then press **▶ Run all**.
 4. Open Claude Code in the side window and type `/regain` to talk about the project.

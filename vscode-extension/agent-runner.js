@@ -118,6 +118,9 @@ function auditPrompt(map) {
 }
 
 async function run(root, kind, prompt, token, onProgress) {
+  const provider = vscode.workspace.getConfiguration("regain").get("analysisProvider", "codex");
+  if (provider === "claude") return runClaude(root, kind, prompt, token, onProgress);
+  if (provider !== "codex") throw new Error(`Unknown ReGain analysis provider: ${provider}`);
   const temporary = await fs.promises.mkdtemp(path.join(os.tmpdir(), "regain-schema-"));
   const schemaPath = path.join(temporary, "output.schema.json");
   await fs.promises.writeFile(schemaPath, JSON.stringify(kind === "map" ? mapSchema : kind === "branch" ? branchSchema : kind === "audit" ? auditSchema : kind === "coverage" ? coverageSchema : detailSchema), "utf8");
@@ -150,6 +153,44 @@ async function run(root, kind, prompt, token, onProgress) {
   } finally {
     await fs.promises.rm(temporary, {recursive: true, force: true});
   }
+}
+
+function runClaude(root, kind, prompt, token, onProgress) {
+  const schema = kind === "map" ? mapSchema : kind === "branch" ? branchSchema
+    : kind === "audit" ? auditSchema : kind === "coverage" ? coverageSchema : detailSchema;
+  return new Promise((resolve, reject) => {
+    const executable = vscode.workspace.getConfiguration("regain").get("claudeExecutable", "claude");
+    const child = spawn(executable, ["-p", "--output-format", "json", "--json-schema", JSON.stringify(schema),
+      "--permission-mode", "plan", "--no-session-persistence"],
+    {cwd: root, windowsHide: true, stdio: ["pipe", "pipe", "pipe"]});
+    let output = "", errorText = "", cancelled = false, settled = false;
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      cancellation?.dispose();
+      if (error) reject(error); else resolve(result);
+    };
+    const cancellation = token?.onCancellationRequested(() => { cancelled = true; child.kill(); });
+    child.stdin.on("error", () => {});
+    child.stdout.on("data", chunk => { output += chunk.toString(); });
+    child.stderr.on("data", chunk => { errorText = (errorText + chunk.toString()).slice(-4000); });
+    child.on("error", error => finish(error.code === "ENOENT"
+      ? new Error("Claude Code CLI was not found. Install it or set ReGain: Claude Executable to its path.") : error));
+    child.on("close", code => {
+      if (cancelled) return finish(new Error("Analysis cancelled"));
+      if (code !== 0) return finish(new Error(errorText || `Claude Code exited with code ${code}`));
+      try {
+        const response = JSON.parse(output);
+        if (response.is_error || response.subtype === "error") throw new Error(response.result || "Claude Code analysis failed");
+        if (!response.structured_output || typeof response.structured_output !== "object")
+          throw new Error("Claude Code returned no structured analysis");
+        onProgress?.("Validating the agent's map…");
+        finish(null, response.structured_output);
+      } catch (error) { finish(error); }
+    });
+    onProgress?.("Claude Code is tracing source and dependencies…");
+    child.stdin.end(prompt);
+  });
 }
 
 module.exports = {run, mapPrompt, branchPrompt, auditPrompt, detailPrompt, mapSchema, branchSchema, auditSchema, coverageSchema};
