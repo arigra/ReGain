@@ -81,7 +81,18 @@ const detailSchema = {
   required: ["overview", "sequence", "stages", "decisions", "unresolved"],
 };
 
-function executable() {
+function onPath(name) {
+  const names = process.platform === "win32" ? [`${name}.exe`] : [name];
+  for (const directory of (process.env.PATH || "").split(path.delimiter).filter(Boolean)) {
+    for (const filename of names) {
+      const candidate = path.join(directory, filename);
+      try { if (fs.statSync(candidate).isFile()) return candidate; } catch { /* Keep searching. */ }
+    }
+  }
+  return null;
+}
+
+function codexExecutable() {
   const extension = vscode.extensions.getExtension("openai.chatgpt");
   if (extension) {
     const platforms = process.platform === "win32" ? ["windows-x86_64"]
@@ -91,7 +102,37 @@ function executable() {
       if (fs.existsSync(candidate)) return candidate;
     }
   }
-  return "codex";
+  return onPath("codex");
+}
+
+function claudeExecutable() {
+  const configured = vscode.workspace.getConfiguration("regain").get("claudeExecutable", "claude");
+  if (path.isAbsolute(configured)) {
+    try { if (fs.statSync(configured).isFile()) return configured; } catch { /* Missing configured path. */ }
+    return null;
+  }
+  return onPath(configured);
+}
+
+let selectedProvider;
+async function chooseProvider() {
+  const codex = codexExecutable();
+  const claude = claudeExecutable();
+  if (codex && claude) {
+    if (!selectedProvider) {
+      const picked = await vscode.window.showQuickPick([
+        {label: "Codex", provider: "codex"},
+        {label: "Claude Code", provider: "claude"},
+      ], {placeHolder: "Choose the AI provider for this ReGain session"});
+      if (!picked) throw new Error("Analysis cancelled");
+      selectedProvider = picked.provider;
+    }
+    return {provider: selectedProvider, executable: selectedProvider === "claude" ? claude : codex};
+  }
+  selectedProvider = undefined;
+  if (codex) return {provider: "codex", executable: codex};
+  if (claude) return {provider: "claude", executable: claude};
+  throw new Error("ReGain needs either the Codex CLI or the Claude Code CLI installed to analyze a project.");
 }
 
 function mapPrompt() {
@@ -118,15 +159,14 @@ function auditPrompt(map) {
 }
 
 async function run(root, kind, prompt, token, onProgress) {
-  const provider = vscode.workspace.getConfiguration("regain").get("analysisProvider", "codex");
-  if (provider === "claude") return runClaude(root, kind, prompt, token, onProgress);
-  if (provider !== "codex") throw new Error(`Unknown ReGain analysis provider: ${provider}`);
+  const choice = await chooseProvider();
+  if (choice.provider === "claude") return runClaude(root, kind, prompt, token, onProgress, choice.executable);
   const temporary = await fs.promises.mkdtemp(path.join(os.tmpdir(), "regain-schema-"));
   const schemaPath = path.join(temporary, "output.schema.json");
   await fs.promises.writeFile(schemaPath, JSON.stringify(kind === "map" ? mapSchema : kind === "branch" ? branchSchema : kind === "audit" ? auditSchema : kind === "coverage" ? coverageSchema : detailSchema), "utf8");
   try {
     return await new Promise((resolve, reject) => {
-      const child = spawn(executable(), ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--json", "--output-schema", schemaPath, "-C", root, "-"],
+      const child = spawn(choice.executable, ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--json", "--output-schema", schemaPath, "-C", root, "-"],
         {cwd: root, windowsHide: true, stdio: ["pipe", "pipe", "pipe"]});
       let finalText = "", errorText = "", failure = "", cancelled = false;
       const cancellation = token?.onCancellationRequested(() => { cancelled = true; child.kill(); });
@@ -155,11 +195,10 @@ async function run(root, kind, prompt, token, onProgress) {
   }
 }
 
-function runClaude(root, kind, prompt, token, onProgress) {
+function runClaude(root, kind, prompt, token, onProgress, executable) {
   const schema = kind === "map" ? mapSchema : kind === "branch" ? branchSchema
     : kind === "audit" ? auditSchema : kind === "coverage" ? coverageSchema : detailSchema;
   return new Promise((resolve, reject) => {
-    const executable = vscode.workspace.getConfiguration("regain").get("claudeExecutable", "claude");
     const child = spawn(executable, ["-p", "--output-format", "json", "--json-schema", JSON.stringify(schema),
       "--permission-mode", "plan", "--no-session-persistence"],
     {cwd: root, windowsHide: true, stdio: ["pipe", "pipe", "pipe"]});

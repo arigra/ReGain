@@ -25,7 +25,6 @@ step "Extensions"
 vsix="$(ls "$here"/dist/regain-*.vsix | sort -V | tail -1)"
 "$code_cli" --install-extension "$vsix" --force
 "$code_cli" --install-extension ms-python.python
-"$code_cli" --install-extension anthropic.claude-code
 
 step "Claude Code skill /regain"
 skills="$HOME/.claude/skills"

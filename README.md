@@ -10,7 +10,7 @@ A project's ReGain files live in its own `.regain/` folder, so they travel with 
 
 ## Install
 
-You need [VS Code](https://code.visualstudio.com), [git](https://git-scm.com), and Python 3 (from [python.org](https://www.python.org) with "Add to PATH" ticked, or [Anaconda](https://www.anaconda.com)). Claude Code is installed by the setup.
+You need [VS Code](https://code.visualstudio.com), [git](https://git-scm.com), and Python 3 (from [python.org](https://www.python.org) with "Add to PATH" ticked, or [Anaconda](https://www.anaconda.com)). Install Codex or Claude Code separately if you want it to analyze projects.
 
 ```
 git clone https://github.com/arigra/ReGain.git
@@ -20,11 +20,11 @@ git clone https://github.com/arigra/ReGain.git
 
 **macOS / Linux**: `bash ReGain/setup.sh`
 
-The setup installs the ReGain, Python and Claude Code extensions into VS Code, links the `/regain` skill into Claude Code, and checks that your Python has `ipykernel` and `jupyter_client` (it offers to install them). Then restart VS Code.
+The setup installs the ReGain and Python extensions into VS Code, links the optional `/regain` skill for Claude Code, and checks that your Python has `ipykernel` and `jupyter_client` (it offers to install them). It does not install Claude Code. Then restart VS Code.
 
 ## Use it on a project
 
-To use Claude Code for automatic analysis, install the [Claude Code CLI](https://code.claude.com/docs/en/overview), then set **ReGain: Analysis Provider** to **Claude Code** in VS Code settings. If `claude` is not on `PATH`, set **ReGain: Claude Executable** to its absolute path. Codex remains the default.
+ReGain uses whichever analysis CLI is available: Codex or [Claude Code](https://code.claude.com/docs/en/overview). If both are installed, ReGain asks you which to use when analysis starts and remembers your choice for that VS Code session. If Claude Code is installed outside `PATH`, set **ReGain: Claude Executable** to its absolute path. ReGain does not install either CLI.
 
 1. Click the **ReGain** icon in the VS Code Activity Bar. Choose **Prepare current project** or **Choose a project folder**. The selected provider traces the project in read-only mode, and ReGain turns the result into a capability diagram in `.regain/overview.html`. Select a capability for a second, detailed analysis, source walkthrough, and reviewed line reasons.
 2. Click `.regain/overview.html` for the big picture, or a `.regain/*.regain.md` page for the file-by-file view.

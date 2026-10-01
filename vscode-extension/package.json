@@ -2,7 +2,7 @@
   "name": "regain",
   "displayName": "ReGain",
   "description": "Opens a project's .regain pages with runnable Python and shell blocks and project-reviewed line explanations.",
-  "version": "1.1.11",
+  "version": "1.1.12",
   "publisher": "arigra",
   "license": "UNLICENSED",
   "engines": {
@@ -73,13 +73,6 @@
     "configuration": {
       "title": "ReGain",
       "properties": {
-        "regain.analysisProvider": {
-          "type": "string",
-          "enum": ["codex", "claude"],
-          "enumDescriptions": ["Use Codex CLI", "Use Claude Code CLI"],
-          "default": "codex",
-          "description": "AI provider used to prepare projects and generate capability notebooks."
-        },
         "regain.claudeExecutable": {
           "type": "string",
           "default": "claude",

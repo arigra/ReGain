@@ -24,11 +24,12 @@ the selected scope and verified source files are shown before creation. Choose
 **Create notebook for this scope** for a source walkthrough and
 reviewed line reasons. ReGain validates source references before saving the
 agent's structured output under `.regain/`. Unreviewed colors remain marked as
-drafts. Set **ReGain: Analysis Provider** to **Claude Code** to use Claude for
-preparation and notebook generation. The Claude Code CLI must be installed and
-available on `PATH`, or set **ReGain: Claude Executable** to its absolute path.
-The default provider is Codex, available through the Codex VS Code extension or
-on `PATH`. Preparing a project sends its source-derived contents to the selected provider.
+drafts. ReGain uses the installed Codex or Claude Code CLI automatically. If both
+are installed, it asks which one to use when analysis starts. The Claude Code CLI
+must be on `PATH`, or set **ReGain: Claude Executable** to its absolute path.
+Codex is available through the Codex VS Code extension or on `PATH`.
+ReGain does not install either CLI. Preparing a project sends its source-derived
+contents to the selected provider.
 Detailed capability pages start with a sequence diagram and include small
 runnable examples where the agent can verify a real API and use synthetic input.
 Code under `REGAIN_EXAMPLES_BEGIN` and `REGAIN_EXAMPLES_END` in an existing page

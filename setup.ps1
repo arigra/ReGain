@@ -25,7 +25,6 @@ Step "Extensions"
 $vsix = Get-ChildItem (Join-Path $here "dist\regain-*.vsix") | Sort-Object { [version]($_.BaseName -replace '^regain-', '') } | Select-Object -Last 1
 & $code --install-extension $vsix.FullName --force
 & $code --install-extension ms-python.python
-& $code --install-extension anthropic.claude-code
 
 Step "Claude Code skill /regain"
 $skills = Join-Path $env:USERPROFILE ".claude\skills"
