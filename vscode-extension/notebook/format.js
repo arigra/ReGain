@@ -27,7 +27,7 @@ function parse(text) {
   };
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(OPEN);
-    const kind = m && (m[1] === "file" ? "file" : m[1] === "python" ? "code" : null);
+    const kind = m && (m[1] === "file" ? "file" : (m[1] === "python" || m[1] === "shell") ? "code" : null);
     if (!kind) { prose.push(lines[i]); continue; }
     let j = i + 1;
     while (j < lines.length && !CLOSE.test(lines[j])) j++;
@@ -38,7 +38,7 @@ function parse(text) {
     const rest = words.filter(w => w !== vis);
     let b;
     if (kind === "code") {
-      b = {kind, src: lines.slice(i + 1, j).join("\n")};
+      b = {kind, language: m[1], src: lines.slice(i + 1, j).join("\n")};
     } else {
       const [path, range] = rest;
       const r = range && range.match(/^(\d+)-(\d+)$/);
@@ -56,7 +56,7 @@ function serialize(blocks) {
   return blocks.map(b => {
     if (b.kind === "text") return b.src;
     const vis = b.visual && b.visual.length ? " visual=" + b.visual.join(",") : "";
-    if (b.kind === "code") return "```python" + vis + "\n" + b.src + "\n```";
+    if (b.kind === "code") return "```" + (b.language === "shell" ? "shell" : "python") + vis + "\n" + b.src + "\n```";
     const range = b.range ? ` ${b.range[0]}-${b.range[1]}` : "";
     return "```file " + b.path + range + vis + "\n```";
   }).join("\n\n") + "\n";

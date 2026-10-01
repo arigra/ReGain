@@ -3,6 +3,7 @@ const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const {spawn} = require("child_process");
 const {parse, serialize} = require("./format");
 const {Kernel, pythonFor} = require("./kernel");
 const {lineChanges} = require("./diff");
@@ -134,9 +135,13 @@ class NotebookEditor {
       }
       return c;
     };
+    const rangeKey = range => range ? range.join("-") : "all";
     const files = () => {
       const out = {};
-      for (const b of blocks) if (b.kind === "file" && b.path) out[b.path] = fileInfo(b);
+      for (const b of blocks) if (b.kind === "file" && b.path) {
+        if (!out[b.path]) out[b.path] = {...fileInfo({path: b.path, range: null}), ranges: {}};
+        out[b.path].ranges[rangeKey(b.range)] = fileInfo(b);
+      }
       return out;
     };
 
@@ -243,7 +248,7 @@ class NotebookEditor {
       kernel.setPython(python);
     };
 
-    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, "**/*.{py,yaml,yml,json,toml,cfg,txt,sh,md,svg,png,jpg,jpeg,gif,webp}"));
+    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, "**/*.{py,cpp,cc,cxx,h,hpp,hh,hxx,yaml,yml,json,toml,cfg,txt,sh,md,svg,png,jpg,jpeg,gif,webp}"));
     const onFile = uri => {
       if (samePath(uri.fsPath, bitesPath)) { bites = loadBites(); return sendAll(); }
       if (samePath(uri.fsPath, importancePath)) {
@@ -255,10 +260,9 @@ class NotebookEditor {
       if (blocks.some(b => (b.visual || []).some(v => samePath(path.resolve(pageDir, v), uri.fsPath)))) return sendAll();
       const b = blocks.find(x => x.kind === "file" && samePath(path.resolve(root, x.path), uri.fsPath));
       if (!b) return;
-      const content = fileInfo(b);
-      if (selfWrites.get(b.path) === content.text) return;   // our own write echoing back
+      if (selfWrites.get(b.path) === readText(uri.fsPath).text) { selfWrites.delete(b.path); return; }
       selfWrites.delete(b.path);
-      post({type: "file", path: b.path, content});
+      sendAll();
     };
     watcher.onDidChange(onFile);
     watcher.onDidCreate(onFile);
@@ -271,7 +275,9 @@ class NotebookEditor {
       sendAll();
     });
 
-    panel.onDidDispose(() => { watcher.dispose(); docSub.dispose(); kernel.dispose(); });
+    let shellProcess = null;
+    let shellRunId = 0;
+    panel.onDidDispose(() => { watcher.dispose(); docSub.dispose(); kernel.dispose(); if (shellProcess) shellProcess.kill(); });
 
     panel.webview.onDidReceiveMessage(async m => {
       switch (m.type) {
@@ -303,13 +309,13 @@ class NotebookEditor {
                 post({type: "range", path: m.path, from: b.range, to: [b.range[0], end]});
               }
             }
-            selfWrites.set(m.path, m.text);
+            selfWrites.set(m.path, text);
             writeText(full, text, eol);
             await ws.update(seenKey(full), text);    // you wrote it, so you have seen it
-            const blk = blocks.find(x => x.kind === "file" && x.path === m.path) || b;
-            post({type: "saved", path: m.path, ok: true, lines: text.split("\n").length, content: fileInfo(blk)});
+            post({type: "saved", path: m.path, range: m.range, ok: true, lines: text.split("\n").length, content: fileInfo(b)});
+            sendAll();
           } catch (e) {
-            post({type: "saved", path: m.path, ok: false, error: e.message});
+            post({type: "saved", path: m.path, range: m.range, ok: false, error: e.message});
           }
           break;
         }
@@ -366,8 +372,7 @@ class NotebookEditor {
         case "markSeen": {
           const full = path.resolve(root, m.path);
           if (fs.existsSync(full)) await ws.update(seenKey(full), readText(full).text);
-          const b = blocks.find(x => x.kind === "file" && x.path === m.path);
-          if (b) post({type: "annot", path: m.path, content: fileInfo(b)});
+          sendAll();
           break;
         }
 
@@ -385,12 +390,35 @@ class NotebookEditor {
         }
 
         case "run":
+          if (m.language === "shell") {
+            if (shellProcess) { post({type: "runFailed", key: m.key}); break; }
+            const id = `shell-${++shellRunId}`;
+            const command = process.platform === "win32" ? "powershell.exe" : "/bin/sh";
+            const args = process.platform === "win32"
+              ? ["-NoProfile", "-NonInteractive", "-Command", m.code]
+              : ["-c", m.code];
+            const child = spawn(command, args, {cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"]});
+            shellProcess = child;
+            post({type: "runStarted", id, key: m.key});
+            child.stdout.on("data", data => post({type: "kernel", ev: {type: "stream", id, name: "stdout", text: data.toString()}}));
+            child.stderr.on("data", data => post({type: "kernel", ev: {type: "stream", id, name: "stderr", text: data.toString()}}));
+            child.on("error", error => post({type: "kernel", ev: {type: "stream", id, name: "stderr", text: error.message + "\n"}}));
+            child.on("close", code => {
+              if (shellProcess === child) shellProcess = null;
+              post({type: "kernel", ev: {type: "stream", id, name: code === 0 ? "stdout" : "stderr", text: `Exit code: ${code}\n`}});
+              post({type: "kernel", ev: {type: "done", id, status: code === 0 ? "ok" : "error"}});
+            });
+            break;
+          }
           try {
             const id = await kernel.exec(m.code);
             post({type: "runStarted", id, key: m.key});
           } catch { post({type: "runFailed", key: m.key}); }
           break;
-        case "interrupt": kernel.interrupt(); break;
+        case "interrupt":
+          if (shellProcess) shellProcess.kill();
+          kernel.interrupt();
+          break;
         case "restart": kernel.restart(); break;
 
         case "open": {

@@ -23,6 +23,7 @@
   // Collapsed headings, by their text; kept in the webview state across reloads.
   const collapsed = new Set((vscode.getState() || {}).collapsed || []);
   const saveCollapsed = () => vscode.setState({...(vscode.getState() || {}), collapsed: [...collapsed]});
+  const expandedFiles = new Set(); // every new page starts with Python source minimized
   const heading = b => {
     if (b.kind !== "text") return null;
     const m = b.src.split("\n")[0].match(/^(#{1,6})\s+(.*)$/);
@@ -76,9 +77,57 @@
       .replace(/\*([^*]+)\*/g, "<i>$1</i>")
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
   }
+  function sequenceDiagram(lines) {
+    const participants = [], messages = [];
+    for (const line of lines) {
+      let m = line.match(/^participant\s+(\w+)\s+as\s+(.+)$/);
+      if (m) { participants.push({id: m[1], name: m[2]}); continue; }
+      m = line.match(/^(\w+)->>(\w+):\s*(.+)$/);
+      if (m) messages.push({from: m[1], to: m[2], label: m[3]});
+    }
+    if (participants.length < 2 || !messages.length) return "<pre>" + esc(lines.join("\n")) + "</pre>";
+    const wrap = name => {
+      const result = [];
+      let row = "";
+      for (let word of name.split(/\s+/)) {
+        while (word.length > 19) {
+          if (row) { result.push(row); row = ""; }
+          result.push(word.slice(0, 19));
+          word = word.slice(19);
+        }
+        if (row && (row + " " + word).length > 19) { result.push(row); row = word; }
+        else row = row ? row + " " + word : word;
+      }
+      if (row) result.push(row);
+      return result;
+    };
+    const names = participants.map(p => wrap(p.name));
+    const boxHeight = 18 + Math.max(...names.map(rows => rows.length)) * 17;
+    const width = Math.max(760, participants.length * 205), height = boxHeight + 80 + messages.length * 74;
+    const x = new Map(participants.map((p, i) => [p.id, 95 + i * (width - 190) / (participants.length - 1)]));
+    const body = [`<svg class="sequence-svg" style="min-width:${width}px" viewBox="0 0 ${width} ${height}" role="img" aria-label="Execution sequence diagram">`,
+      `<defs><marker id="seq-arrow" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0 0 L9 3.5 L0 7 Z" fill="currentColor"/></marker></defs>`];
+    for (const [index, p] of participants.entries()) {
+      const px = x.get(p.id);
+      body.push(`<rect class="seq-node" x="${px - 84}" y="12" width="168" height="${boxHeight}" rx="8"/>`,
+        `<text class="seq-name" x="${px}" y="${25 + (boxHeight - names[index].length * 17) / 2}" text-anchor="middle">` +
+          names[index].map((row, j) => `<tspan x="${px}" dy="${j ? 17 : 0}">${esc(row)}</tspan>`).join("") + `</text>`,
+        `<line class="seq-life" x1="${px}" y1="${boxHeight + 12}" x2="${px}" y2="${height - 17}"/>`);
+    }
+    messages.forEach((m, i) => {
+      if (!x.has(m.from) || !x.has(m.to)) return;
+      const from = x.get(m.from), to = x.get(m.to), y = boxHeight + 70 + i * 74;
+      if (from === to) body.push(`<path class="seq-message" d="M${from} ${y} h55 v22 h-55" marker-end="url(#seq-arrow)"/>`);
+      else body.push(`<line class="seq-message" x1="${from}" y1="${y}" x2="${to + (to > from ? -9 : 9)}" y2="${y}" marker-end="url(#seq-arrow)"/>`);
+      const shown = m.label.length > 32 ? m.label.slice(0, 31) + "…" : m.label;
+      body.push(`<text class="seq-label" x="${from === to ? from + 28 : (from + to) / 2}" y="${y - 10}" text-anchor="middle"><title>${esc(m.label)}</title>${esc(shown)}</text>`);
+    });
+    body.push("</svg>");
+    return `<div class="sequence-wrap">${body.join("")}</div>`;
+  }
   function markdown(src) {
     const html = [];
-    let para = [], list = [], fence = null;
+    let para = [], list = [], fence = null, fenceKind = "";
     const flush = () => {
       if (para.length) html.push("<p>" + inline(para.join(" ")) + "</p>");
       if (list.length) html.push("<ul>" + list.map(x => "<li>" + inline(x) + "</li>").join("") + "</ul>");
@@ -86,18 +135,18 @@
     };
     for (const line of src.split("\n")) {
       if (fence) {
-        if (/^```/.test(line)) { html.push("<pre>" + esc(fence.join("\n")) + "</pre>"); fence = null; }
+        if (/^```/.test(line)) { html.push(fenceKind === "mermaid" ? sequenceDiagram(fence) : "<pre>" + esc(fence.join("\n")) + "</pre>"); fence = null; }
         else fence.push(line);
         continue;
       }
       let m;
-      if (/^```/.test(line)) { flush(); fence = []; }
+      if (/^```/.test(line)) { flush(); fence = []; fenceKind = line.slice(3).trim(); }
       else if ((m = line.match(/^(#{1,3})\s+(.*)$/))) { flush(); html.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); }
       else if ((m = line.match(/^\s*[-*]\s+(.*)$/))) { if (para.length) flush(); list.push(m[1]); }
       else if (!line.trim()) flush();
       else { if (list.length) flush(); para.push(line.trim()); }
     }
-    if (fence) html.push("<pre>" + esc(fence.join("\n")) + "</pre>");
+    if (fence) html.push(fenceKind === "mermaid" ? sequenceDiagram(fence) : "<pre>" + esc(fence.join("\n")) + "</pre>");
     flush();
     return html.join("");
   }
@@ -295,11 +344,15 @@
   }
 
   // Running a file block saves it, changed or not; the extension reports back ("saved").
+  const rangeKey = range => range ? range.join("-") : "all";
+  const filePart = (path, range) => files[path]?.ranges?.[rangeKey(range)];
+  const fileIsDirty = path => Object.values(files[path]?.ranges || {}).some(f => f.text !== f.saved);
   function saveFile(p, range) {
-    if (!files[p] || files[p].missing) return;
-    vscode.postMessage({type: "writeFile", path: p, range, text: files[p].text});
-    files[p].saved = files[p].text;
-    setDirty(p, false);
+    const f = filePart(p, range);
+    if (!f || f.missing) return;
+    vscode.postMessage({type: "writeFile", path: p, range, text: f.text});
+    f.saved = f.text;
+    setDirty(p, fileIsDirty(p));
     fileRuns.set(p, {state: "saving"});
     const blk = app.querySelector(`.blk.file[data-path="${CSS.escape(p)}"]`);
     if (blk) { blk.querySelector(".state").textContent = ""; blk.querySelector(".count").textContent = "[*]"; }
@@ -345,21 +398,32 @@
   }
 
   function fileView(b, i) {
-    const f = files[b.path];
+    const f = filePart(b.path, b.range);
+    const fileKey = b.path + ":" + (b.range ? b.range.join("-") : "all");
+    const minimized = /\.py$/i.test(b.path) && !expandedFiles.has(fileKey);
+    const toggleFile = () => {
+      if (minimized) expandedFiles.add(fileKey); else expandedFiles.delete(fileKey);
+      render();
+    };
     const state = h("span", {class: "state"}, fileState(b.path));
     const bar = h("div", {class: "bar"},
       h("span", {class: "dots"}, h("i"), h("i"), h("i")),
       h("button", {class: "path", title: "Open in the editor",
         onclick: () => vscode.postMessage({type: "open", path: b.path, line: b.range ? b.range[0] : 1})}, b.path),
       b.range ? h("span", {class: "range"}, `lines ${b.range[0]}–${b.range[1]}`) : null,
+      /\.py$/i.test(b.path) ? h("button", {class: "file-toggle", onclick: toggleFile,
+        "aria-expanded": minimized ? "false" : "true"}, minimized ? "Expand source" : "Minimize source") : null,
       state);
     let body;
     if (!f || f.missing) {
       body = h("div", {class: "missing"}, "This file does not exist yet.",
         h("button", {class: "tbtn", onclick: () => vscode.postMessage({type: "createMissing", path: b.path})}, "Create it"));
+    } else if (minimized) {
+      body = h("div", {class: "file-summary"}, `Python source hidden · ${f.text.split("\n").length} lines`,
+        h("button", {class: "tbtn", onclick: toggleFile}, "Expand to read or edit"));
     } else {
       const marks = text => {
-        const cur = files[b.path], mk = {};
+        const cur = filePart(b.path, b.range), mk = {};
         if (text === cur.saved) for (const n of cur.changed || []) mk[n - cur.start] = {cls: "chg", title: "Changed since you last looked"};
         const lines = text.split("\n");
         if (text === cur.saved) lines.forEach((_, j) => {
@@ -375,8 +439,8 @@
       const language = /\.(?:cpp|cc|cxx|h|hpp|hh|hxx)$/i.test(b.path) ? "cpp" : "python";
       const ed = codeEditor(f.text, {start: f.start, numbers: true, language, marks,
         onInput: v => {
-          files[b.path] = {...files[b.path], text: v};
-          setDirty(b.path, v !== files[b.path].saved);
+          files[b.path].ranges[rangeKey(b.range)] = {...f, text: v};
+          setDirty(b.path, fileIsDirty(b.path));
         },
         onKey: e => {
           const save = (e.key === "Enter" && (e.shiftKey || e.metaKey || e.ctrlKey)) ||
@@ -481,7 +545,7 @@
       });
       return result;
     };
-    const ed = codeEditor(b.src, {marks,
+    const ed = codeEditor(b.src, {language: b.language === "shell" ? "shell" : "python", marks,
       onInput: v => { b.src = v; push(); setStale(b); },
       onKey: e => {
         if (e.key === "Enter" && (e.shiftKey || e.metaKey || e.ctrlKey)) {
@@ -578,9 +642,11 @@
       h("button", {class: "tbtn", onclick: () => { queue = []; counts.clear(); vscode.postMessage({type: "restart"}); render(); }}, "↻ Restart"),
       h("span", {class: "picks"}, pick("file"), pick("code"),
         h("button", {class: "tbtn", onclick: () => { colors = {}; applyColors(); saveColors(); render(); }}, "reset")),
-      h("button", {class: "kpick kstate " + kstate.state, title: (kstate.python || "") + "\nClick to change the kernel",
-          onclick: () => vscode.postMessage({type: "pickKernel"})},
-        h("i"), kname, labels[kstate.state] ? h("span", {class: "kmuted"}, " · " + labels[kstate.state]) : null, " ▾"));
+      blocks.some(b => b.kind === "code" && b.language !== "shell")
+        ? h("button", {class: "kpick kstate " + kstate.state, title: (kstate.python || "") + "\nClick to change the kernel",
+            onclick: () => vscode.postMessage({type: "pickKernel"})},
+          h("i"), kname, labels[kstate.state] ? h("span", {class: "kmuted"}, " · " + labels[kstate.state]) : null, " ▾")
+        : h("span", {class: "kpick"}, "Shell commands"));
   }
   const saveColors = debounce(() => vscode.postMessage({type: "colors", colors}), 300);
 
@@ -652,7 +718,7 @@
       `⚠ Unsaved changes in ${[...dirty].join(", ")}. This run uses the saved version; ▶ the file to save it.\n`}] : []);
     counts.set(key, "*");
     render();
-    vscode.postMessage({type: "run", key, code: b.src});
+    vscode.postMessage({type: "run", key, code: b.src, language: b.language || "python"});
   }
   function append(key, o) {
     const list = out.get(key) || [];
@@ -706,7 +772,10 @@
         visuals = m.visuals || {};
         for (const [p, f] of Object.entries(m.files)) {
           if (dirty.has(p) && files[p]) m.files[p] = files[p];   // keep unsaved edits
-          else f.saved = f.text;
+          else {
+            f.saved = f.text;
+            for (const part of Object.values(f.ranges || {})) part.saved = part.text;
+          }
         }
         files = m.files;
         importance = m.importance || {};
@@ -717,7 +786,7 @@
         const old = blocks;
         blocks = m.blocks.map((b, i) => {
           const o = old[i];
-          const same = o && o.kind === b.kind && (b.kind !== "code" || o.src === b.src);
+          const same = o && o.kind === b.kind && (b.kind !== "code" || (o.src === b.src && (o.language || "python") === (b.language || "python")));
           return {...b, key: same ? o.key : nextKey++};
         });
         for (const b of blocks) {
@@ -739,9 +808,11 @@
       case "saved": {
         const time = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
         fileRuns.set(m.path, {state: "done", ok: m.ok, lines: m.lines, error: m.error, time});
-        if (!m.ok) { dirty.add(m.path); files[m.path].saved = null; }   // still not on disk
-        else if (m.content && files[m.path])
-          for (const k of ["bites", "lostBites", "changed", "removed"]) files[m.path][k] = m.content[k];
+        const f = filePart(m.path, m.range);
+        if (!m.ok && f) f.saved = null;   // still not on disk
+        else if (m.content && f)
+          for (const k of ["bites", "lostBites", "changed", "removed"]) f[k] = m.content[k];
+        setDirty(m.path, fileIsDirty(m.path));
         render();
         const blk = app.querySelector(`.blk.file[data-path="${CSS.escape(m.path)}"]`);
         if (blk) { blk.classList.add("flash"); setTimeout(() => blk.classList.remove("flash"), 700); }

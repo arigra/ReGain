@@ -1,8 +1,8 @@
 {
   "name": "regain",
   "displayName": "ReGain",
-  "description": "Opens a project's .regain pages with runnable Python blocks and project-reviewed line explanations.",
-  "version": "0.7.4",
+  "description": "Opens a project's .regain pages with runnable Python and shell blocks and project-reviewed line explanations.",
+  "version": "1.1.10",
   "publisher": "arigra",
   "license": "UNLICENSED",
   "engines": {
@@ -11,6 +11,43 @@
   "main": "./extension.js",
   "activationEvents": [],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "regain",
+          "title": "ReGain",
+          "icon": "media/regain.svg"
+        }
+      ]
+    },
+    "views": {
+      "regain": [
+        {
+          "id": "regain.start",
+          "name": "Get Started"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "regain.start",
+        "contents": "Let Codex trace the project, then explore its capability map and analyzed source walkthroughs.\n[Prepare current project](command:regain.initCurrent)\n[Choose a project folder](command:regain.initFolder)\n[Create an empty folder](command:regain.createFolder)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "regain.initCurrent",
+        "title": "ReGain: Prepare Current Project"
+      },
+      {
+        "command": "regain.initFolder",
+        "title": "ReGain: Prepare Another Project Folder"
+      },
+      {
+        "command": "regain.createFolder",
+        "title": "ReGain: Create Empty Folder"
+      }
+    ],
     "customEditors": [
       {
         "viewType": "regain.page",
@@ -45,6 +82,7 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "node scripts/stage-tooling.js",
     "test": "node test/format.test.js && node test/diff.test.js && node test/view.test.js && node test/provider.test.js && node test/kernel.test.js",
     "package": "vsce package --skip-license -o ../dist/"
   },

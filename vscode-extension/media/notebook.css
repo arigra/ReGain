@@ -64,6 +64,13 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px soli
 .text .md ul{margin:4px 0;padding-inline-start:20px;color:var(--muted)}
 .text .md code{font-family:"JetBrains Mono",monospace;font-size:.88em;background:var(--sunk);padding:1px 5px;border-radius:4px}
 .text .md pre{background:var(--sunk);padding:8px 12px;border-radius:8px;overflow:auto}
+.sequence-wrap{overflow-x:auto;margin:18px 0;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--sunk)}
+.sequence-svg{display:block;min-width:760px;width:100%;height:auto;color:var(--ink);font-family:"JetBrains Mono",monospace}
+.seq-node{fill:var(--surface);stroke:var(--file);stroke-width:1.5}
+.seq-name{fill:var(--ink);font-size:13px;font-weight:700}
+.seq-life{stroke:var(--muted);stroke-width:1;stroke-dasharray:5 5;opacity:.65}
+.seq-message{fill:none;stroke:var(--code);stroke-width:2}
+.seq-label{fill:var(--ink);font-size:12px}
 .text .md a{color:var(--code)}
 .text .md{cursor:text}
 .text textarea{width:100%;font-family:"JetBrains Mono",monospace;font-size:13px}
@@ -79,6 +86,9 @@ button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px soli
 .bar .path:hover{text-decoration:underline}
 .bar .range{font-size:12px;color:var(--surface);opacity:.8}
 .bar .state{position:absolute;inset-inline-end:12px;font-size:12px;color:var(--surface);opacity:.8}
+.bar .file-toggle{font:600 11px "JetBrains Mono",monospace;color:var(--surface);background:transparent;border:1px solid color-mix(in srgb,var(--surface) 65%,transparent);border-radius:5px;padding:3px 7px;cursor:pointer}
+.bar .file-toggle:hover{background:color-mix(in srgb,var(--surface) 20%,transparent)}
+.file-summary{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px;color:var(--muted);font-size:12px}
 
 .editor{display:flex;align-items:flex-start;overflow:auto;--padl:4px}
 .file .editor{max-height:clamp(400px,72vh,900px)}

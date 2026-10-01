@@ -24,10 +24,12 @@ The setup installs the ReGain, Python and Claude Code extensions into VS Code, l
 
 ## Use it on a project
 
-1. Open the project folder in VS Code. It needs a `.regain/` folder (radSeq has one on its `regain` branch: `git clone https://github.com/arigra/radSeq.git` then `git checkout regain`).
+1. Click the **ReGain** icon in the VS Code Activity Bar. Choose **Prepare current project** or **Choose a project folder**. Codex traces the selected project in read-only mode, and ReGain turns the result into a capability diagram in `.regain/overview.html`. Select a capability for a second, detailed analysis, source walkthrough, and reviewed line reasons.
 2. Click `.regain/overview.html` for the big picture, or a `.regain/*.regain.md` page for the file-by-file view.
 3. On a notebook page, pick the Python with the kernel button at the top right (it needs the project's packages, plus `ipykernel` and `jupyter_client`), then press **▶ Run all**.
 4. Open Claude Code in the side window and type `/regain` to talk about the project.
+
+The sidebar's **Create an empty folder** action opens a new empty workspace. Add code before preparing its walkthrough. The included `.regain/tooling/build_general_importance.py` can create draft line highlighting; review its explanations as described in [the line importance guide](docs/line-importance.md).
 
 In a notebook page, ▶ next to a code block runs it, ▶ next to a file block saves the file, and the ▸ on the right of a block opens its pictures.
 
