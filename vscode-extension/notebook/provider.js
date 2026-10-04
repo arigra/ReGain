@@ -7,6 +7,7 @@ const {spawn} = require("child_process");
 const {parse, serialize} = require("./format");
 const {Kernel, pythonFor} = require("./kernel");
 const {lineChanges} = require("./diff");
+const {termsSync} = require("../page-state");
 
 const COLORS_KEY = "regain.colors";
 
@@ -159,6 +160,18 @@ class NotebookEditor {
       }, 500);
     };
 
+    // Comments on blocks (what a block should do, how it should change), kept beside the page
+    // and keyed like outputs: a file block by its path and lines, a code block by its source.
+    const commentsPath = document.uri.fsPath.replace(/\.md$/, "") + ".comments.json";
+    let savedComments = {};
+    try { savedComments = JSON.parse(fs.readFileSync(commentsPath, "utf8")); } catch { /* none yet */ }
+    const commentId = b => b.kind === "file" ? `file:${b.path}${b.range ? `:${b.range[0]}-${b.range[1]}` : ""}` : "code:" + b.src;
+    const saveComments = () => {
+      for (const k of Object.keys(savedComments)) if (!savedComments[k].length) delete savedComments[k];
+      if (!Object.keys(savedComments).length) { try { fs.unlinkSync(commentsPath); } catch { /* none */ } return; }
+      fs.writeFileSync(commentsPath, JSON.stringify(savedComments, null, 1) + "\n");
+    };
+
     // Pictures that explain a block (visual= on its fence), relative to the page's folder.
     const IMAGE = /\.(svg|png|jpe?g|gif|webp)$/i;
     const visuals = () => {
@@ -173,26 +186,38 @@ class NotebookEditor {
       return out;
     };
     const fence = b => serialize([b]).split("\n")[0];
-    const visualRequest = i => {
-      const b = blocks[i];
-      const pageRel = posix(path.relative(root, document.uri.fsPath));
-      const dirRel = posix(path.relative(root, pageDir));
-      const n = blocks.slice(0, i + 1).filter(x => x.kind === b.kind).length;
+    // Where a block's visual is saved, and how the block is described to the agent.
+    const visualName = b => {
+      const n = blocks.slice(0, blocks.indexOf(b) + 1).filter(x => x.kind === b.kind).length;
       const base = b.kind === "file"
         ? path.basename(b.path).replace(/\.[^.]+$/, "") + (b.range ? `-${b.range[0]}-${b.range[1]}` : "")
         : path.basename(document.uri.fsPath).replace(/\.regain\.md$/, "") + "-block" + n;
       let name = `visuals/${base}.svg`;
       for (let k = 2; (b.visual || []).includes(name) || fs.existsSync(path.resolve(pageDir, name)); k++) name = `visuals/${base}-${k}.svg`;
-      const target = b.kind === "file"
-        ? `the file ${b.path}${b.range ? ` (lines ${b.range[0]}-${b.range[1]})` : ""}`
-        : `this code block from ${pageRel}:\n\n${b.src}\n`;
+      return name;
+    };
+    const visualTarget = b => b.kind === "file"
+      ? `the file ${b.path}${b.range ? ` (lines ${b.range[0]}-${b.range[1]})` : ""}`
+      : `this code block from ${posix(path.relative(root, document.uri.fsPath))}:\n\n${b.src}\n`;
+    const visualRequest = i => {
+      const b = blocks[i];
+      const pageRel = posix(path.relative(root, document.uri.fsPath));
+      const name = visualName(b);
       return [
-        `Make a visual that explains what ${target} does, so I can come back to it later or explain it to someone else.`,
+        `Make a visual that explains what ${visualTarget(b)} does, so I can come back to it later or explain it to someone else.`,
         `A clear diagram (the flow, what goes in and out, the shapes of the data) rather than a chart of made-up numbers. Mark anything you are not sure about.`,
-        `Save it as ${path.posix.join(dirRel, name)} (SVG, readable on both light and dark backgrounds).`,
+        `Save it as ${path.posix.join(posix(path.relative(root, pageDir)), name)} (SVG, readable on both light and dark backgrounds).`,
         `Then link it in ${pageRel}: add visual=${name} to the end of this block's opening line:`,
         fence(b),
       ].join("\n");
+    };
+    // What the page says just above a block: its section heading down to the block.
+    const textAbove = i => {
+      const parts = [];
+      for (let k = i - 1; k >= 0 && blocks[k].kind === "text"; k--) parts.unshift(blocks[k].src);
+      const above = parts.join("\n");
+      const start = above.lastIndexOf("\n## ");
+      return (start >= 0 ? above.slice(start + 1) : above).slice(-3000);
     };
 
     const cellPlans = () => {
@@ -203,9 +228,10 @@ class NotebookEditor {
       }
       return plans;
     };
-    const sendAll = () => post({type: "render", blocks, files: files(), root, visuals: visuals(),
+    const sendAll = () => post({type: "render", blocks, files: files(), root, visuals: visuals(), comments: savedComments,
       name: path.basename(document.uri.fsPath), outputs: savedOut,
-      colors: this.context.globalState.get(COLORS_KEY, {}), importance, cellImportance: cellPlans()});
+      colors: this.context.globalState.get(COLORS_KEY, {}), importance, cellImportance: cellPlans(),
+      terms: termsSync(root)});
 
     // Keep the .regain.md in step with the blocks, and saved.
     const commit = async () => {
@@ -363,6 +389,65 @@ class NotebookEditor {
           break;
         }
 
+        case "drawVisual": {          // the agent draws the block's idea; the picture is linked when it is ready
+          const b = blocks[m.index];
+          if (!b) return;
+          const original = fence(b), name = visualName(b);
+          const title = (document.getText().match(/^#\s+(.+)$/m) || [])[1] || path.basename(document.uri.fsPath);
+          const progress = (text, time) => panel.webview.postMessage({type: "visualProgress", key: m.key, text, time});
+          try {
+            await vscode.commands.executeCommand("regain.drawVisual", root, {
+              pageTitle: title, pageText: textAbove(m.index), target: visualTarget(b), code: b.kind === "code" ? b.src : (readFileBlock(root, b).text || "").slice(0, 12000),
+              label: b.kind === "file" ? path.basename(b.path) : "this block", file: path.resolve(pageDir, name)}, progress);
+            // The page may have changed while the agent worked: link the visual to the same block.
+            const now = blocks.find(x => fence(x) === original) || blocks[m.index];
+            if (now) now.visual = [...(now.visual || []), name];
+            await commit();
+            panel.webview.postMessage({type: "visualDone", key: m.key});
+            sendAll();
+          } catch (error) {
+            panel.webview.postMessage({type: "visualDone", key: m.key, error: error.message});
+            vscode.window.showErrorMessage(`ReGain could not draw the visual: ${error.message}`);
+          }
+          break;
+        }
+
+        case "addComment": {
+          const b = blocks[m.index], text = String(m.text || "").trim();
+          if (!b || !text) return;
+          const id = commentId(b);
+          savedComments[id] = [...(savedComments[id] || []), {id: crypto.randomUUID(), text, at: new Date().toISOString(), done: false}];
+          saveComments();
+          sendAll();
+          break;
+        }
+
+        case "toggleComment":
+        case "deleteComment": {
+          const b = blocks[m.index];
+          if (!b) return;
+          const id = commentId(b), list = savedComments[id] || [];
+          savedComments[id] = m.type === "deleteComment" ? list.filter(c => c.id !== m.id) : list.map(c => c.id === m.id ? {...c, done: !c.done} : c);
+          saveComments();
+          sendAll();
+          break;
+        }
+
+        case "copyComments": {        // the open comments become a change request an agent can act on
+          const b = blocks[m.index];
+          const open = b ? (savedComments[commentId(b)] || []).filter(c => !c.done) : [];
+          if (!open.length) return;
+          const pageRel = posix(path.relative(root, document.uri.fsPath));
+          await vscode.env.clipboard.writeText([
+            `Change request from the ReGain guide ${pageRel}, about ${visualTarget(b)}`,
+            "", "What I want:", ...open.map(c => `- ${c.text}`), "",
+            "Make these changes in the project's code, not in the guide. Keep everything else working as it does now.",
+            "Before changing anything, tell me briefly what you will change and why. After, list what changed so I can mark the comments done.",
+          ].join("\n"));
+          vscode.window.showInformationMessage(`ReGain: ${open.length} comment${open.length === 1 ? "" : "s"} copied as a change request. Paste it to the agent.`);
+          break;
+        }
+
         case "copyVisualRequest": {
           await vscode.env.clipboard.writeText(visualRequest(m.index));
           vscode.window.showInformationMessage("ReGain: request copied. Paste it to the agent in the side window.");
@@ -432,6 +517,7 @@ class NotebookEditor {
         case "colors":
           await this.context.globalState.update(COLORS_KEY, m.colors);
           break;
+
       }
     });
   }

@@ -5,162 +5,58 @@ const path = require("path");
 const {NotebookEditor} = require("./notebook/provider");
 const fs = require("fs");
 const {setupProject} = require("./project-setup");
-const {run, mapPrompt, branchPrompt, auditPrompt, detailPrompt} = require("./agent-runner");
-const {normalizeMap, normalizeBranch, showAnalyzing, mergePreviousMap, saveMap, saveBranch, findCapability, scopedCapability, saveDetail} = require("./semantic-map");
+const {run, recordRun, notesPrompt, mapPrompt, branchPrompt} = require("./agent-runner");
+const {writeGuide} = require("./guide");
+const {makeVisual} = require("./visual");
+const {normalizeMap, showAnalyzing, mergePreviousMap, saveMap, saveBranch, findCapability} = require("./semantic-map");
+const {buildIndex} = require("./project-index");
+const {readAllFiles, savedNotes} = require("./file-notes");
+const {sendMessage, decideSuggestion} = require("./overview-chat");
+const {loadConversation, loadLearner, updateProgress} = require("./conversation");
+const {pageState} = require("./page-state");
 const {buildLineMap} = require("./line-map");
-const {inventory, resumeCoverage, coveragePrompt, applyDecisions, completeCoverage, saveCoverage} = require("./file-coverage");
 const activeProjects = new Set();
 const activeCapabilities = new Set();
 const activeBranches = new Set();
-
-function featurePlaced(missing, children) {
-  const words = value => new Set(String(value || "").toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ").split(" ")
-    .filter(word => word.length > 2 && !["and", "the", "for", "with", "specific", "driver"].includes(word)));
-  const sought = words(missing.name);
-  const evidence = new Set(missing.evidencePaths || []);
-  return children.some(child => {
-    const label = words(child.name);
-    const shared = [...sought].filter(word => label.has(word)).length;
-    const sourceMatch = (child.sources || []).some(source => evidence.has(source.path));
-    return child.name.toLowerCase().includes(missing.name.toLowerCase())
-      || (sourceMatch && shared >= Math.min(2, sought.size));
-  });
-}
+// Open overview pages per project, so the conversation can stream into all of them.
+const pages = new Map();
+const postToPages = (root, message) => { for (const panel of pages.get(root) || []) panel.webview.postMessage(message); };
+const chatDeps = root => ({run, post: message => postToPages(root, message), report: () => {}});
+const refreshPages = async root => postToPages(root, {type: "state", ...(await pageState(root))});
 
 async function analyzeProject(root, resume = false) {
   if (activeProjects.has(root)) return vscode.window.showInformationMessage("ReGain is already learning this project.");
   activeProjects.add(root);
-  let map;
+  let map, created = false;
   try {
     await vscode.window.withProgress({location: vscode.ProgressLocation.Notification,
       title: "ReGain: learning the project", cancellable: true}, async (progress, token) => {
-      if (resume) {
+      {
         try {
           const saved = JSON.parse(await fs.promises.readFile(path.join(root, ".regain", "semantic-map.json"), "utf8"));
-          if (saved.generatedByReGain && saved.analysis?.status !== "complete") map = saved;
+          if (saved.generatedByReGain && Array.isArray(saved.capabilities) && saved.capabilities.length) map = saved;
         } catch (error) { if (error.code !== "ENOENT") throw error; }
       }
       if (!map) {
-        const raw = await run(root, "map", mapPrompt(), token, message => progress.report({message}));
+        // Read every file first, from the files themselves (docs are claims, not truth), then build the map from those notes.
+        const index = await buildIndex(root);
+        const projectName = path.basename(root);
+        const reading = await readAllFiles(root, index, {run, token, prompt: batch => notesPrompt(batch, projectName),
+          report: message => progress.report({message})});
+        const request = await mapPrompt(root, index, reading.notes);
+        const raw = await run(root, "map", request, token, message => progress.report({message}));
         map = await normalizeMap(root, raw);
+        map.reading = {read: reading.read, total: reading.total, unread: reading.failed, method: "all"};
         await mergePreviousMap(root, map);
+        created = true;
       }
-      const savedCoverageExists = resume && fs.existsSync(path.join(root, ".regain", "file-coverage.json"));
-      const unplaced = [...(map.analysis?.unplaced || [])];
-      map.analysis = {status: "in_progress", message: "Discovering project features", unplaced};
-      await saveMap(root, map);
-      for (let index = 0; index < map.capabilities.length; index++) {
-        const capability = map.capabilities[index];
-        if (capability.refined) continue;
-        const label = `Discovering features ${index + 1}/${map.capabilities.length}: ${capability.name}`;
-        progress.report({message: label});
-        const branch = await run(root, "branch", branchPrompt(capability), token,
-          message => progress.report({message: `${label} — ${message}`}));
-        capability.children = await normalizeBranch(root, capability, branch);
-        capability.refined = true;
-        capability.refinementNotes = (branch.uncertainties || []).filter(Boolean).slice(0, 20);
-        map.analysis.message = `Discovered ${index + 1}/${map.capabilities.length} capability branches`;
-        await saveMap(root, map);
-      }
-      if (!savedCoverageExists) {
-      progress.report({message: "Checking the tree for missing named features"});
-      const audit = await run(root, "audit", auditPrompt(map), token,
-        message => progress.report({message: `Checking feature coverage — ${message}`}));
-      if (!Array.isArray(audit.missing)) throw new Error("Feature coverage audit returned no result");
-      const omissionsByParent = new Map();
-      for (const missing of audit.missing) {
-        if (!omissionsByParent.has(missing.parentId)) omissionsByParent.set(missing.parentId, []);
-        omissionsByParent.get(missing.parentId).push(missing);
-      }
-      for (const [parentId, omissions] of omissionsByParent) {
-        const parent = map.capabilities.find(item => item.id === parentId);
-        if (!parent) {
-          unplaced.push(...omissions);
-          continue;
-        }
-        progress.report({message: `Tracing omitted features under ${parent.name}`});
-        const hints = omissions.map(item => `${item.name}: ${(item.evidencePaths || []).join(", ")}`).join("; ");
-        const prompt = `${branchPrompt(parent)}\nA coverage audit found potentially omitted features: ${hints}. Verify each in source and include real ones as named children. Preserve the other verified child features.`;
-        const branch = await run(root, "branch", prompt, token, message => progress.report({message}));
-        const children = await normalizeBranch(root, parent, branch);
-        const existing = new Set(parent.children.map(child => child.id));
-        parent.children.push(...children.filter(child => !existing.has(child.id)));
-        for (const missing of omissions) {
-          if (featurePlaced(missing, parent.children)) continue;
-          progress.report({message: `Verifying audited feature: ${missing.name}`});
-          const focused = await run(root, "branch", `${branchPrompt(parent)}\nThe audit identified "${missing.name}" in ${(missing.evidencePaths || []).join(", ")}. Verify it in source. If real and distinct, return exactly one child named "${missing.name}" with its feature-specific sources and flow. If already covered or unsupported, return no children and explain in uncertainties.`, token,
-            message => progress.report({message}));
-          const specific = await normalizeBranch(root, parent, focused);
-          parent.children.push(...specific.filter(child => !parent.children.some(current => current.id === child.id)));
-          if (!featurePlaced(missing, parent.children)) unplaced.push(missing);
-        }
-        map.analysis.message = `Audited features under ${parent.name}`;
-        await saveMap(root, map);
-      }
-      if (unplaced.length) {
-        map.analysis.unplaced = unplaced;
-        map.uncertainties.push(...unplaced.map(item => `Audit could not confirm placement of ${item.name}: ${(item.evidencePaths || []).join(", ")}`));
-      }
-      map.analysis.message = "Checking repository file coverage";
-      await saveMap(root, map);
-      }
-      progress.report({message: "Inventorying repository files"});
-      const coverage = await inventory(root, map);
-      if (resume) await resumeCoverage(root, coverage);
-      await saveCoverage(root, coverage);
-      const pending = coverage.files.filter(file => file.status === "unresolved").map(file => file.path);
-      for (let offset = 0; offset < pending.length; offset += 60) {
-        const paths = pending.slice(offset, offset + 60);
-        progress.report({message: `Classifying files ${offset + 1}-${offset + paths.length} of ${pending.length}`});
-        const decisions = await run(root, "coverage", coveragePrompt(map, paths), token,
-          message => progress.report({message: `Classifying files ${offset + 1}-${offset + paths.length}: ${message}`}));
-        applyDecisions(coverage, decisions, paths, map);
-        await saveCoverage(root, coverage);
-      }
-      const retry = coverage.files.filter(file => file.retry).map(file => file.path);
-      for (let offset = 0; offset < retry.length; offset += 10) {
-        const paths = retry.slice(offset, offset + 10);
-        progress.report({message: `Clarifying ${offset + 1}-${offset + paths.length} of ${retry.length} incomplete file decisions`});
-        const decisions = await run(root, "coverage", coveragePrompt(map, paths) + "\nThe previous answer omitted or failed to explain these files. Give a concrete reason for each classification. If evidence is insufficient, use unresolved and explain what is missing.", token,
-          message => progress.report({message}));
-        applyDecisions(coverage, decisions, paths, map);
-        await saveCoverage(root, coverage);
-      }
-      const newFeatures = coverage.files.filter(file => file.status === "new_feature");
-      const featuresByParent = new Map();
-      for (const file of newFeatures) {
-        const parentId = file.capabilityIds[0];
-        if (!featuresByParent.has(parentId)) featuresByParent.set(parentId, []);
-        featuresByParent.get(parentId).push(file);
-      }
-      for (const [parentId, files] of featuresByParent) {
-        const parent = map.capabilities.find(item => item.id === parentId);
-        if (!parent) throw new Error(`File coverage found a feature without a parent: ${files[0].path}`);
-        progress.report({message: `Adding features found in files under ${parent.name}`});
-        const hints = files.map(file => `${file.featureName}: ${file.path}`).join("; ");
-        const branch = await run(root, "branch", `${branchPrompt(parent)}\nFile coverage found potentially omitted features: ${hints}. Verify each and name real features as children. Preserve the other verified child features.`, token,
-          message => progress.report({message}));
-        const children = await normalizeBranch(root, parent, branch);
-        const existing = new Set(parent.children.map(child => child.id));
-        parent.children.push(...children.filter(child => !existing.has(child.id)));
-        for (const file of files) {
-          if (!featurePlaced({name: file.featureName, evidencePaths: [file.path]}, parent.children))
-            unplaced.push({name: file.featureName, parentId, evidencePaths: [file.path]});
-        }
-        map.analysis.message = `Added file-discovered features under ${parent.name}`;
-        await saveMap(root, map);
-      }
-      map.coverage = completeCoverage(coverage, map);
-      await saveCoverage(root, coverage);
-      const remaining = coverage.counts.unresolved + coverage.counts.new_feature;
-      map.analysis = unplaced.length || remaining
-        ? {status: "needs_review", message: `${unplaced.length} features and ${remaining} files need review`, unplaced}
-        : {status: "complete", message: "Capability and file coverage complete"};
+      map.analysis = {status: "complete", message: "Initial map ready. Explore children and create notebooks when you choose."};
       await saveMap(root, map);
     });
     if (map.analysis.status === "needs_review") vscode.window.showWarningMessage(`ReGain built a partial tree. ${map.analysis.message}. See the overview for details.`);
-    else vscode.window.showInformationMessage("ReGain finished discovering the project's capabilities. Select a feature for detailed analysis.");
+    else vscode.window.showInformationMessage("ReGain map ready. The guide below the map is introducing the subjects.");
+    // A new map opens the conversation: the agent explains the project and offers its subjects.
+    if (created && !(await loadConversation(root)).length) await sendMessage(root, {}, chatDeps(root));
   } catch (error) {
     const overviewFile = path.join(root, ".regain", "overview.html");
     const previous = await fs.promises.readFile(overviewFile, "utf8").catch(() => "");
@@ -181,19 +77,29 @@ async function analyzeCapability(root, id) {
   try {
     const map = JSON.parse(await fs.promises.readFile(path.join(root, ".regain", "semantic-map.json"), "utf8"));
     if (!map.generatedByReGain) throw new Error("The capability map is not a ReGain analysis");
-    const selected = findCapability(map, id);
-    const capability = selected && scopedCapability(selected);
+    // The page covers this subject only; parts that have their own pages are named, not absorbed.
+    const capability = findCapability(map, id);
     if (!capability) throw new Error("Capability was not found in the current map");
+    const learner = await loadLearner(root);
+    const context = {notes: await savedNotes(root), index: await buildIndex(root)};
+    const started = Date.now();
     const result = await vscode.window.withProgress({location: vscode.ProgressLocation.Notification,
-      title: `ReGain: tracing ${capability.name}`, cancellable: true}, async (progress, token) => {
-      const raw = await run(root, "detail", detailPrompt(capability), token, message => progress.report({message}));
-      const saved = await saveDetail(root, capability, raw);
+      title: `ReGain: writing the guide for ${capability.name}`, cancellable: true}, async (progress, token) => {
+      // Three calls at most: write, review, and fix only if hard rules still fail.
+      const call = (kind, request, title) => run(root, kind, request, token, message => progress.report({message}), title);
+      const saved = await writeGuide(root, map, capability, {call, learner, context});
       try { await buildLineMap(root); }
       catch (error) { saved.lineMapWarning = error.message; }
       return saved;
     });
+    // The whole guide's time, so the overview can say how long a guide usually takes.
+    await recordRun(root, {kind: "guide", title: `Guide for ${capability.name}`, ms: Date.now() - started, ok: true});
     await vscode.commands.executeCommand("vscode.openWith", vscode.Uri.file(result.notebookPath), "regain.notebook", vscode.ViewColumn.Two);
-    vscode.window.showInformationMessage(`ReGain traced ${capability.name}: ${result.sourceBlocks} source blocks, ${result.reviewedLines} reviewed line reasons.`);
+    await updateProgress(root, {started: id});
+    await refreshPages(root);
+    vscode.window.showInformationMessage(`ReGain wrote and reviewed a ${result.sections}-section guide for ${capability.name}.`);
+    if (result.remaining.length || result.problems.length)
+      vscode.window.showWarningMessage(`ReGain's guide for ${capability.name} still has ${result.remaining.length} unfixed problems${result.problems.length ? ` (${result.problems.join(" ")})` : ""}. Details are in ${path.basename(result.recordPath)}.`);
     if (result.lineMapWarning) vscode.window.showWarningMessage(`ReGain could not create line colors: ${result.lineMapWarning}`);
   } catch (error) {
     vscode.window.showErrorMessage(`ReGain capability analysis stopped: ${error.message}`);
@@ -214,7 +120,7 @@ async function expandCapability(root, id) {
     if (selected.refined) return;
     const result = await vscode.window.withProgress({location: vscode.ProgressLocation.Notification,
       title: `ReGain: exploring ${selected.name}`, cancellable: true}, async (progress, token) => {
-      const raw = await run(root, "branch", branchPrompt(selected), token, message => progress.report({message}));
+      const raw = await run(root, "branch", await branchPrompt(root, map, selected), token, message => progress.report({message}), `Splitting ${selected.name}`);
       return saveBranch(root, id, raw);
     });
     vscode.window.showInformationMessage(result.children.length
@@ -225,6 +131,15 @@ async function expandCapability(root, id) {
   } finally {
     activeBranches.delete(key);
   }
+}
+
+// "Draw a visual" beside a notebook block. onStep shows the agent's latest step in the block's panel.
+async function drawVisual(root, request, onStep) {
+  return vscode.window.withProgress({location: vscode.ProgressLocation.Notification, title: `ReGain: drawing a visual for ${request.label}`, cancellable: true},
+    (progress, token) => makeVisual(root, request, (kind, prompt, title) => {
+      if (typeof onStep === "function") prompt.onStep = onStep;
+      return run(root, kind, prompt, token, message => progress.report({message}), title);
+    }));
 }
 
 // Runs inside the page: follows the VS Code theme and routes link clicks.
@@ -258,7 +173,14 @@ class PageEditor {
 
     const render = async () => {
       const bytes = await vscode.workspace.fs.readFile(doc.uri);
-      const html = Buffer.from(bytes).toString("utf8");
+      let html = Buffer.from(bytes).toString("utf8");
+      if (html.includes("REGAIN_SEMANTIC_V1")) {
+        try {
+          const map = JSON.parse(await fs.promises.readFile(path.join(dir, "semantic-map.json"), "utf8"));
+          const root = path.dirname(dir);
+          if (map.generatedByReGain) html = require("./semantic-tree-diagram").semanticDiagram(map, await pageState(root));
+        } catch (error) { if (error.code !== "ENOENT") throw error; }
+      }
       panel.webview.html = html.includes("</body>")
         ? html.replace("</body>", BRIDGE + "</body>")
         : html + BRIDGE;
@@ -269,7 +191,10 @@ class PageEditor {
     const watcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(dir, path.basename(doc.uri.fsPath)));
     watcher.onDidChange(render);
-    panel.onDidDispose(() => watcher.dispose());
+    const projectRoot = path.dirname(dir);
+    if (!pages.has(projectRoot)) pages.set(projectRoot, new Set());
+    pages.get(projectRoot).add(panel);
+    panel.onDidDispose(() => { watcher.dispose(); pages.get(projectRoot)?.delete(panel); });
 
     panel.webview.onDidReceiveMessage(async message => {
       if (message.type === "retryAnalysis") {
@@ -279,6 +204,28 @@ class PageEditor {
       }
       if (message.type === "analyzeCapability") {
         await analyzeCapability(path.dirname(dir), String(message.id || ""));
+        return;
+      }
+      if (message.type === "chat") {
+        await sendMessage(path.dirname(dir), {text: String(message.text || ""), selectedId: message.selectedId || ""}, chatDeps(path.dirname(dir)));
+        return;
+      }
+      if (message.type === "chatStart") {
+        if (!(await loadConversation(path.dirname(dir))).length) await sendMessage(path.dirname(dir), {}, chatDeps(path.dirname(dir)));
+        return;
+      }
+      if (message.type === "markCovered") {
+        await updateProgress(path.dirname(dir), {id: String(message.id || ""), covered: !!message.covered});
+        await refreshPages(path.dirname(dir));
+        return;
+      }
+      if (message.type === "openGuide") {
+        const guide = path.join(dir, `capability-${String(message.id || "").replace(/[^\w.-]/g, "")}.regain.md`);
+        if (fs.existsSync(guide)) await vscode.commands.executeCommand("vscode.openWith", vscode.Uri.file(guide), "regain.notebook", vscode.ViewColumn.Two);
+        return;
+      }
+      if (message.type === "decideSuggestion") {
+        await decideSuggestion(path.dirname(dir), {message: Number(message.message), index: Number(message.index), apply: !!message.apply}, chatDeps(path.dirname(dir)));
         return;
       }
       if (message.type === "expandCapability") {
@@ -338,12 +285,14 @@ class PageEditor {
 }
 
 function activate(context) {
+  context.subscriptions.push(vscode.commands.registerCommand("regain.drawVisual", (root, request, onStep) => drawVisual(root, request, onStep)));
   context.subscriptions.push(vscode.window.registerCustomEditorProvider(
     "regain.page", new PageEditor(),
     {webviewOptions: {retainContextWhenHidden: true}}));
   context.subscriptions.push(vscode.window.registerCustomEditorProvider(
     "regain.notebook", new NotebookEditor(context),
     {webviewOptions: {retainContextWhenHidden: true}}));
+
 
   context.subscriptions.push(vscode.window.registerTreeDataProvider("regain.start", {
     getTreeItem: item => item,

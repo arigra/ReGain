@@ -4,10 +4,12 @@
   const app = document.getElementById("app");
   const root = document.documentElement;
 
-  let name = "", blocks = [], files = {}, visuals = {}, importance = {}, cellImportance = {};
+  let name = "", blocks = [], files = {}, visuals = {}, comments = {}, importance = {}, cellImportance = {};
   const importanceLabel = level => ({critical: "Critical", important: "Important",
     supporting: "Skippable"})[level] || level;
-  const visualOpen = new Set();   // block keys whose visual panel is open
+  const sideOpen = new Map();     // block key -> "visual" or "comments": the panel open beside it
+  const drafts = new Map();       // block key -> unsent comment text
+  const drawing = new Map();      // block key -> latest step while the agent draws its visual
   let nextKey = 1;
   const out = new Map();          // block key -> [{kind, ...}]
   const counts = new Map();       // block key -> execution count or "*"
@@ -24,6 +26,7 @@
   const collapsed = new Set((vscode.getState() || {}).collapsed || []);
   const saveCollapsed = () => vscode.setState({...(vscode.getState() || {}), collapsed: [...collapsed]});
   const expandedFiles = new Set(); // every new page starts with Python source minimized
+  let terms = [];  // the map's words (hover text)
   const heading = b => {
     if (b.kind !== "text") return null;
     const m = b.src.split("\n")[0].match(/^(#{1,6})\s+(.*)$/);
@@ -140,6 +143,7 @@
         continue;
       }
       let m;
+      if (/^<!-- regain:step /.test(line)) continue;   // step markers from older guides stay hidden
       if (/^```/.test(line)) { flush(); fence = []; fenceKind = line.slice(3).trim(); }
       else if ((m = line.match(/^(#{1,3})\s+(.*)$/))) { flush(); html.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); }
       else if ((m = line.match(/^\s*[-*]\s+(.*)$/))) { if (para.length) flush(); list.push(m[1]); }
@@ -318,6 +322,10 @@
       body.replaceChildren();
       const md = h("div", {class: "md", title: "Double-click to edit"});
       md.innerHTML = markdown(closed ? b.src.split("\n")[0] : b.src);
+      for (const p of md.querySelectorAll("p")) {
+        if (/^Source:\s/.test(p.textContent)) p.classList.add("aside");
+        else if (/^Expected observation:/.test(p.textContent)) p.classList.add("observe");
+      }
       md.addEventListener("dblclick", edit);
       md.addEventListener("click", e => {
         const a = e.target.closest("a");
@@ -410,7 +418,7 @@
       h("span", {class: "dots"}, h("i"), h("i"), h("i")),
       h("button", {class: "path", title: "Open in the editor",
         onclick: () => vscode.postMessage({type: "open", path: b.path, line: b.range ? b.range[0] : 1})}, b.path),
-      b.range ? h("span", {class: "range"}, `lines ${b.range[0]}–${b.range[1]}`) : null,
+      b.range ? h("span", {class: "range"}, `lines ${b.range[0]}-${b.range[1]}`) : null,
       /\.py$/i.test(b.path) ? h("button", {class: "file-toggle", onclick: toggleFile,
         "aria-expanded": minimized ? "false" : "true"}, minimized ? "Expand source" : "Minimize source") : null,
       state);
@@ -454,7 +462,7 @@
       ed.ta.dataset.path = b.path;
       body = ed;
     }
-    return h("div", {class: "blk file" + (dirty.has(b.path) ? " dirty" : "") + (visualOpen.has(b.key) ? " vopen" : ""), "data-path": b.path},
+    return h("div", {class: "blk file" + (dirty.has(b.path) ? " dirty" : "") + (sideOpen.has(b.key) ? " vopen" : ""), "data-path": b.path},
       h("div", {class: "gut"},
         h("button", {class: "runbtn", title: "Save the file (Shift+Enter)", onclick: () => saveFile(b.path, b.range)}, "▶"),
         h("span", {class: "count"}, !fileRuns.has(b.path) ? "[ ]" :
@@ -462,15 +470,28 @@
       h("div", {class: "box"}, bar, body, fileResult(b.path)), sideView(b, i), tools(i));
   }
 
-  // To the right of a file or code block: an arrow that opens its visual panel.
+  // A file or code block's comments live under the same id the page keeps them by.
+  const commentId = b => b.kind === "file" ? `file:${b.path}${b.range ? `:${b.range[0]}-${b.range[1]}` : ""}` : "code:" + b.src;
+
+  // To the right of a file or code block: two tabs, one for its visual and one for comments on it.
   function sideView(b, i) {
     const vis = b.visual || [];
-    const open = visualOpen.has(b.key);
-    const toggle = () => { if (open) visualOpen.delete(b.key); else visualOpen.add(b.key); render(); };
-    const tab = h("button", {class: "vtab" + (vis.length ? " has" : ""), onclick: toggle,
-      title: open ? "Hide the visual" : vis.length ? `Show the visual (${vis.length})` : "Add a visual that explains this block",
-      "aria-expanded": open ? "true" : "false"}, open ? "◂" : "▸");
-    if (!open) return h("div", {class: "side"}, tab);
+    const notes = comments[commentId(b)] || [];
+    const open = sideOpen.get(b.key);
+    const toggle = kind => () => { if (open === kind) sideOpen.delete(b.key); else sideOpen.set(b.key, kind); render(); };
+    const openNotes = notes.filter(c => !c.done).length;
+    const tabs = h("div", {class: "vtabs"},
+      h("button", {class: "vtab" + (vis.length ? " has" : "") + (open === "visual" ? " on" : ""), onclick: toggle("visual"),
+        title: open === "visual" ? "Hide the visual" : vis.length ? `Show the visual (${vis.length})` : "Draw or add a visual that explains this block",
+        "aria-expanded": open === "visual" ? "true" : "false"}, h("span", {class: "vicon"}, "◫")),
+      h("button", {class: "vtab ctab" + (openNotes ? " has" : "") + (open === "comments" ? " on" : ""), onclick: toggle("comments"),
+        title: open === "comments" ? "Hide comments" : notes.length ? `Comments (${openNotes} open)` : "Comment on what this block should do or how it should change",
+        "aria-expanded": open === "comments" ? "true" : "false"}, h("span", {class: "vicon"}, "✎"), openNotes ? h("span", {class: "ccount"}, String(openNotes)) : null));
+    if (!open) return h("div", {class: "side"}, tabs);
+    return h("div", {class: "side open"}, tabs, open === "visual" ? visualPanel(b, i, vis) : commentPanel(b, i, notes));
+  }
+
+  function visualPanel(b, i, vis) {
     const items = vis.map(v => {
       const info = visuals[v] || {};
       const pic = !info.exists
@@ -489,14 +510,51 @@
             render(); pushNow();
           }}, "✕")));
     });
+    const busy = drawing.has(b.key);
+    const draw = () => {
+      drawing.set(b.key, "Starting the agent…");
+      vscode.postMessage({type: "drawVisual", index: i, key: b.key});
+      render();
+    };
     const panel = h("div", {class: "vpanel"},
       h("div", {class: "vhead"}, h("b", {}, "Visual"),
+        h("button", {class: "tbtn primary", disabled: busy, title: "ReGain's agent reads these lines and draws the idea in them",
+          onclick: draw}, vis.length ? "Draw another" : "Draw a visual"),
         h("button", {class: "tbtn", title: "Copy a request you can paste to the agent in the side window",
-          onclick: () => vscode.postMessage({type: "copyVisualRequest", index: i})}, "Copy request for the agent"),
+          onclick: () => vscode.postMessage({type: "copyVisualRequest", index: i})}, "Copy request"),
         h("button", {class: "tbtn", onclick: () => vscode.postMessage({type: "addVisual", index: i})}, "Add image…")),
-      items.length ? items : h("p", {class: "vempty"},
-        "Nothing here yet. Copy the request and paste it to the agent: it draws a picture of what this block does, saves it next to the page and links it here."));
-    return h("div", {class: "side open"}, tab, panel);
+      busy ? h("div", {class: "vdrawing", "data-key": String(b.key)}, h("span", {class: "spin"}), drawing.get(b.key)) : null,
+      items.length ? items : busy ? null : h("p", {class: "vempty"},
+        "Nothing here yet. Draw a visual: ReGain's agent reads these lines and draws the idea in them (the flow, what goes in and out, the real sizes and thresholds), then links it here."));
+    return panel;
+  }
+
+  // Comments: what the block should do or how it should change. Saved beside the page; copied for an agent.
+  function commentPanel(b, i, notes) {
+    const box = h("textarea", {class: "cinput", rows: "3", placeholder: "What should this block do, or how should it change?"});
+    box.value = drafts.get(b.key) || "";
+    const send = () => {
+      const text = box.value.trim();
+      if (!text) return;
+      drafts.delete(b.key);
+      vscode.postMessage({type: "addComment", index: i, text});
+    };
+    box.addEventListener("input", () => drafts.set(b.key, box.value));
+    box.addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } });
+    const when = at => { try { return new Date(at).toLocaleString(undefined, {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}); } catch { return ""; } };
+    const list = notes.map(c => h("div", {class: "cnote" + (c.done ? " done" : "")},
+      h("p", {}, c.text),
+      h("div", {class: "cmeta"}, h("span", {}, when(c.at)),
+        h("button", {class: "tbtn", title: c.done ? "Open it again" : "Mark it done",
+          onclick: () => vscode.postMessage({type: "toggleComment", index: i, id: c.id})}, c.done ? "Reopen" : "Done"),
+        h("button", {class: "tbtn", title: "Delete this comment", onclick: () => vscode.postMessage({type: "deleteComment", index: i, id: c.id})}, "✕"))));
+    return h("div", {class: "vpanel cpanel"},
+      h("div", {class: "vhead"}, h("b", {}, "Comments"),
+        h("button", {class: "tbtn", disabled: !notes.some(c => !c.done), title: "Copy the open comments with this block, as a change request for an agent",
+          onclick: () => vscode.postMessage({type: "copyComments", index: i})}, "Copy for the agent")),
+      list.length ? list : h("p", {class: "vempty"}, "No comments yet. Say what this block should do, what is wrong with it, or how it should change."),
+      box,
+      h("div", {class: "cactions"}, h("span", {class: "chint"}, "⌘/Ctrl+Enter"), h("button", {class: "tbtn primary", onclick: send}, "Add comment")));
   }
 
   function codeView(b, i) {
@@ -562,7 +620,7 @@
     for (const o of out.get(b.key) || []) output.append(outputNode(o));
     const stale = isStale(b);
     return h("div", {class: "blk code" + (running === b.key ? " running" : "") + (stale ? " stale" : "") +
-        (visualOpen.has(b.key) ? " vopen" : ""), "data-key": b.key},
+        (sideOpen.has(b.key) ? " vopen" : ""), "data-key": b.key},
       h("div", {class: "gut"},
         h("button", {class: "runbtn", title: "Run (Shift+Enter)", onclick: () => run([b.key])}, "▶"),
         h("span", {class: "count"}, c == null ? "[ ]" : `[${c}]`)),
@@ -675,10 +733,59 @@
     }
     views.push(addBar(blocks.length, true));
     app.replaceChildren(...views);
+    markSteps();
+    markTerms();
     window.scrollTo(0, scroll);
     if (focusKey) {
       const ta = app.querySelector(`textarea[data-key="${focusKey}"], textarea[data-path="${focusKey}"]`);
       if (ta) { ta.focus(); if (caret != null) ta.setSelectionRange(caret, caret); }
+    }
+  }
+
+  // The guided path: every "##" heading is a step (except the page's fixed sections), numbered across
+  // the whole page, with a line down the side from the first step to the end of the path.
+  function markSteps() {
+    const fixed = /^(Execution sequence|Unresolved|Open questions)$/;
+    const steps = [...app.querySelectorAll(".text .md h2")].filter(h => !fixed.test(h.textContent.trim()));
+    steps.forEach((h2, n) => {
+      h2.classList.add("step");
+      const row = h("div", {class: "step-row"}, h("span", {class: "step-pill"}, `Step ${n + 1} of ${steps.length}`));
+      h2.before(row);
+    });
+    let onPath = false;
+    for (const blk of app.querySelectorAll(".blk")) {
+      const heads = [...blk.querySelectorAll(".md h2")];
+      if (heads.some(x => x.classList.contains("step"))) onPath = true;
+      else if (heads.some(x => fixed.test(x.textContent.trim()))) onPath = false;
+      if (onPath) blk.classList.add("in-step");
+    }
+  }
+
+  // The map's words get hover text in the page's prose, never inside code or file paths.
+  function markTerms() {
+    if (!terms.length) return;
+    const pattern = new RegExp("(?<![\\w/.-])(" + terms.map(t => t.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")(?![\\w/]|\\.\\w)", "g");
+    for (const md of app.querySelectorAll(".text .md")) {
+      const walker = document.createTreeWalker(md, NodeFilter.SHOW_TEXT, {acceptNode: node =>
+        node.parentElement.closest("code, pre, a, button, .term, .step-row") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT});
+      const nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      for (const node of nodes) {
+        const text = node.nodeValue;
+        pattern.lastIndex = 0;
+        if (!pattern.test(text)) continue;
+        pattern.lastIndex = 0;
+        const frag = document.createDocumentFragment();
+        let last = 0, match;
+        while ((match = pattern.exec(text))) {
+          if (match.index > last) frag.append(text.slice(last, match.index));
+          const span = h("span", {class: "term", title: (terms.find(t => t.term === match[1]) || {}).meaning || "", tabindex: "0"}, match[1]);
+          frag.append(span);
+          last = match.index + match[1].length;
+        }
+        if (last < text.length) frag.append(text.slice(last));
+        node.replaceWith(frag);
+      }
     }
   }
 
@@ -767,9 +874,23 @@
   // ---------- messages ----------
   window.addEventListener("message", ({data: m}) => {
     switch (m.type) {
+      case "visualProgress": {
+        drawing.set(m.key, `${m.text}${m.time ? " · " + m.time : ""}`);
+        const live = app.querySelector(`.vdrawing[data-key="${CSS.escape(String(m.key))}"]`);
+        if (live) live.lastChild.textContent = drawing.get(m.key);
+        else render();
+        break;
+      }
+      case "visualDone":
+        drawing.delete(m.key);
+        if (m.error) banner = `Could not draw the visual: ${m.error}`;
+        render();
+        break;
       case "render": {
         name = m.name;
+        terms = (m.terms || []).filter(t => t.term && t.meaning).sort((a, b) => b.term.length - a.term.length);
         visuals = m.visuals || {};
+        comments = m.comments || {};
         for (const [p, f] of Object.entries(m.files)) {
           if (dirty.has(p) && files[p]) m.files[p] = files[p];   // keep unsaved edits
           else {

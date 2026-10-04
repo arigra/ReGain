@@ -130,6 +130,31 @@ const context = {extensionUri: {fsPath: __dirname}, globalState: {get: (k, d) =>
   assert.strictEqual(fake.command[0], "vscode.open");
   fs.rmSync(pic);
 
+  // "Draw a visual": the agent gets the block's lines and the page around it, and the picture is linked
+  await send({type: "drawVisual", index: 1, key: 7});
+  assert.strictEqual(fake.command[0], "regain.drawVisual");
+  const drawRequest = fake.command[2];
+  assert.ok(drawRequest.target.includes("src/m.py") && drawRequest.code.includes("a = ") && drawRequest.pageTitle === "P");
+  assert.strictEqual(drawRequest.file, path.join(root, ".regain/visuals/m.svg"));
+  assert.ok(doc.text.includes("visual=visuals/regain-pic.png,visuals/regain-pic-2.png,visuals/m.svg"), "the drawn picture is linked to its block");
+  assert.deepStrictEqual(last("visualDone"), {type: "visualDone", key: 7});
+
+  // Comments on a block: saved beside the page, marked done, deleted, copied as a change request
+  await send({type: "addComment", index: 1, text: "  Should skip empty frames.  "});
+  await send({type: "addComment", index: 1, text: "Name the threshold."});
+  await send({type: "addComment", index: 1, text: "   "});
+  const commentsFile = path.join(root, ".regain/p.regain.comments.json");
+  let notes = JSON.parse(fs.readFileSync(commentsFile, "utf8"))["file:src/m.py"];
+  assert.deepStrictEqual(notes.map(c => [c.text, c.done]), [["Should skip empty frames.", false], ["Name the threshold.", false]]);
+  assert.deepStrictEqual(last("render").comments["file:src/m.py"].length, 2, "the page gets the comments");
+  await send({type: "toggleComment", index: 1, id: notes[1].id});
+  await send({type: "copyComments", index: 1});
+  assert.ok(fake.clipboard.includes("about the file src/m.py") && fake.clipboard.includes("- Should skip empty frames.") && !fake.clipboard.includes("Name the threshold"), "only open comments are copied");
+  await send({type: "addComment", index: 2, text: "Print the shape instead."});
+  assert.ok(JSON.parse(fs.readFileSync(commentsFile, "utf8"))["code:print(1)"], "a code block's comments are kept by its source");
+  for (const c of [...notes, ...last("render").comments["code:print(1)"]]) await send({type: "deleteComment", index: c.text.startsWith("Print") ? 2 : 1, id: c.id});
+  assert.ok(!fs.existsSync(commentsFile), "no comments, no file");
+
   // Repeated references to one file keep independent excerpts.
   await send({type: "setBlocks", rerender: true, blocks: [
     {kind: "file", path: "src/m.py", range: [1, 1]},
