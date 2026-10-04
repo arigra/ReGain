@@ -178,4 +178,4 @@ async function saveCoverage(root, coverage) {
   await fs.promises.writeFile(target, JSON.stringify(coverage, null, 2) + '\n', 'utf8');
 }
 
-module.exports = {inventory, resumeCoverage, coveragePrompt, applyDecisions, completeCoverage, saveCoverage};
+module.exports = {skippedDirectories, inventory, resumeCoverage, coveragePrompt, applyDecisions, completeCoverage, saveCoverage};

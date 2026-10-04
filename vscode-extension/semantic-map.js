@@ -7,35 +7,20 @@ const {completeCoverage, saveCoverage} = require("./file-coverage");
 const posix = value => value.split(path.sep).join("/");
 const clean = value => String(value || "").trim().slice(0, 1200);
 const slug = value => clean(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
-const prose = value => clean(value).replace(/\r?\n/g, " ");
-const mermaidLabel = value => prose(value).replace(/[";:]/g, " ").slice(0, 90);
-
-function sequenceMarkdown(sequence) {
-  const participants = (sequence?.participants || []).slice(0, 7)
-    .map((item, index) => ({id: `p${index + 1}`, original: item.id, name: mermaidLabel(item.name)}))
-    .filter(item => item.name);
-  if (participants.length < 2) return [];
-  const ids = new Map(participants.map(item => [item.original, item.id]));
-  const messages = (sequence.messages || []).slice(0, 20).filter(item =>
-    ids.has(item.from) && ids.has(item.to) && mermaidLabel(item.label));
-  if (!messages.length) return [];
-  return ["## Execution sequence", "", "```mermaid", "sequenceDiagram",
-    ...participants.map(item => `participant ${item.id} as ${item.name}`),
-    ...messages.map(item => `${ids.get(item.from)}->>${ids.get(item.to)}: ${mermaidLabel(item.label)}`),
-    "```", ""];
+// Text the user reads never carries semicolons or long dashes (they read as machine-written).
+// Number ranges keep a plain hyphen; inline code between backticks is left alone.
+function tidy(value) {
+  return String(value || "").split(/(`[^`]*`)/).map((part, i) => i % 2 ? part : part
+    .replace(/(\d)\s*[–—]\s*(\d)/g, "$1-$2")
+    .replace(/\s*[–—]\s*/g, ", ")
+    .replace(/;\s+(\S)/g, (_, next) => ". " + next.toUpperCase())
+    .replace(/;/g, ". ").replace(/  +/g, " ")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/,\s*,/g, ",")).join("");
 }
-
-function demonstrationMarkdown(items) {
-  const lines = [];
-  for (const item of (items || []).slice(0, 4)) {
-    const code = String(item.code || "").replace(/\r\n/g, "\n").trim();
-    if (!code || code.length > 8000 || code.includes("```")) continue;
-    lines.push(`### Try it: ${prose(item.title)}`, "", prose(item.explanation), "",
-      `\`\`\`${item.language === "shell" ? "shell" : "python"}`, code, "```", "", `Expected observation: ${prose(item.observation)}`, "");
-  }
-  return lines;
-}
-
+const text = value => tidy(clean(value));
+const kindOf = value => ["code", "experiment", "status"].includes(value) ? value : "code";
+const stateOf = value => ["done", "in_progress", "not_started", "unknown"].includes(value) ? value : "unknown";
 async function sourcePath(root, value) {
   if (typeof value !== "string" || !value || path.isAbsolute(value) || value.includes("\\") || value.split("/").includes("..")) return null;
   const realRoot = await fs.promises.realpath(root);
@@ -60,7 +45,7 @@ async function normalizeMap(root, raw) {
     const sources = [];
     for (const source of (item.sources || []).slice(0, 100)) {
       const file = await sourcePath(root, source.path);
-      if (file && !sources.some(entry => entry.path === file)) sources.push({path: file, reason: clean(source.reason)});
+      if (file && !sources.some(entry => entry.path === file)) sources.push({path: file, reason: text(source.reason)});
     }
     const flow = [];
     for (const stage of (item.flow || []).slice(0, 20)) {
@@ -70,19 +55,29 @@ async function normalizeMap(root, raw) {
         if (file && !paths.includes(file)) paths.push(file);
       }
       if (!paths.length) continue;
-      for (const file of paths) if (!sources.some(entry => entry.path === file)) sources.push({path: file, reason: clean(stage.description)});
-      flow.push({id: slug(stage.id || stage.label), label: clean(stage.label), description: clean(stage.description), sources: paths});
+      for (const file of paths) if (!sources.some(entry => entry.path === file)) sources.push({path: file, reason: text(stage.description)});
+      flow.push({id: slug(stage.id || stage.label), label: text(stage.label), description: text(stage.description), state: stateOf(stage.state), sources: paths});
     }
     if (!sources.length || !flow.length) throw new Error(`Capability ${item.name} has no verified sources or execution flow`);
-    capabilities.push({id, name: clean(item.name), purpose: clean(item.purpose),
+    capabilities.push({id, name: text(item.name), purpose: text(item.purpose), kind: kindOf(item.kind),
+      role: item.role === "side" ? "side" : "flow", state: stateOf(item.state),
       runtimeStatus: ["runtime", "research", "evaluation", "tooling", "unknown"].includes(item.runtimeStatus) ? item.runtimeStatus : "unknown",
       sources, flow, related: (item.related || []).map(slug).filter(Boolean).slice(0, 20)});
   }
   if (!capabilities.length) throw new Error("The agent map had no capabilities with verified source files");
   const valid = new Set(capabilities.map(item => item.id));
   for (const cap of capabilities) cap.related = cap.related.filter(id => valid.has(id) && id !== cap.id);
+  const story = raw.story && ["asks", "done", "next"].every(key => String(raw.story[key] || "").trim())
+    ? {asks: text(raw.story.asks), done: text(raw.story.done), next: text(raw.story.next)} : null;
+  const terms = [];
+  for (const item of raw.terms || []) {
+    const term = text(item.term).slice(0, 60), meaning = text(item.meaning);
+    if (term && meaning && !terms.some(entry => entry.term.toLowerCase() === term.toLowerCase())) terms.push({term, meaning});
+  }
   return {generatedByReGain: true, version: 1, projectName: clean(raw.projectName || path.basename(root)),
-    summary: clean(raw.summary), capabilities, uncertainties: (raw.uncertainties || []).map(clean).filter(Boolean).slice(0, 30)};
+    summary: text(raw.summary), ...(story ? {story} : {}), capabilities, terms: terms.slice(0, 12),
+    openQuestions: (raw.openQuestions || []).map(text).filter(Boolean).slice(0, 8),
+    uncertainties: (raw.uncertainties || []).map(text).filter(Boolean).slice(0, 30)};
 }
 
 function findCapability(map, id) {
@@ -118,7 +113,7 @@ async function normalizeBranch(root, parent, raw) {
     const sources = [];
     for (const source of (item.sources || []).slice(0, 80)) {
       const verified = await sourcePath(root, source.path);
-      if (verified && !sources.some(entry => entry.path === verified)) sources.push({path: verified, reason: clean(source.reason)});
+      if (verified && !sources.some(entry => entry.path === verified)) sources.push({path: verified, reason: text(source.reason)});
     }
     const flow = [];
     for (const step of (item.flow || []).slice(0, 20)) {
@@ -128,14 +123,14 @@ async function normalizeBranch(root, parent, raw) {
         if (verified && !paths.includes(verified)) paths.push(verified);
       }
       if (!paths.length) continue;
-      for (const verified of paths) if (!sources.some(entry => entry.path === verified)) sources.push({path: verified, reason: clean(step.description)});
-      flow.push({id: slug(step.id || step.label), label: clean(step.label), description: clean(step.description), sources: paths});
+      for (const verified of paths) if (!sources.some(entry => entry.path === verified)) sources.push({path: verified, reason: text(step.description)});
+      flow.push({id: slug(step.id || step.label), label: text(step.label), description: text(step.description), state: stateOf(step.state), sources: paths});
     }
     if (!sources.length || !flow.length) throw new Error(`Feature ${item.name} has no verified sources or execution flow`);
     const longId = `${parent.id}--${segment}`;
     const childId = longId.length <= 90 ? longId
       : `${parent.id.slice(0, 42)}--${segment.slice(0, 28)}-${crypto.createHash("sha1").update(longId).digest("hex").slice(0, 8)}`;
-    children.push({id: childId, name: clean(item.name), purpose: clean(item.purpose),
+    children.push({id: childId, name: text(item.name), purpose: text(item.purpose), kind: kindOf(item.kind), state: stateOf(item.state),
       runtimeStatus: ["runtime", "research", "evaluation", "tooling", "unknown"].includes(item.runtimeStatus) ? item.runtimeStatus : "unknown",
       sources, flow, related: [], refined: false, children: []});
   }
@@ -151,7 +146,7 @@ async function saveBranch(root, id, raw) {
   const children = await normalizeBranch(root, parent, raw);
   parent.children = children;
   parent.refined = true;
-  const notes = (raw.uncertainties || []).map(clean).filter(Boolean).slice(0, 20);
+  const notes = (raw.uncertainties || []).map(text).filter(Boolean).slice(0, 20);
   if (notes.length) parent.refinementNotes = notes;
   try {
     const coverage = JSON.parse(await fs.promises.readFile(path.join(root, ".regain", "file-coverage.json"), "utf8"));
@@ -212,72 +207,17 @@ async function mergePreviousMap(root, map) {
   return map;
 }
 
-async function saveMap(root, map) {
+// merge: keep subjects from the saved map that the new one lacks. Off for conversation edits,
+// where a missing subject was merged or removed on purpose.
+async function saveMap(root, map, {merge = true} = {}) {
   const regain = path.join(root, ".regain");
   await fs.promises.mkdir(regain, {recursive: true});
   const data = path.join(regain, "semantic-map.json");
-  await mergePreviousMap(root, map);
+  if (merge) await mergePreviousMap(root, map);
   await fs.promises.writeFile(data, JSON.stringify(map, null, 2) + "\n", "utf8");
   const overview = await overviewPath(root);
   await fs.promises.writeFile(overview, semanticDiagram(map), "utf8");
   return overview;
 }
 
-async function saveDetail(root, capability, raw) {
-  if (!raw || !Array.isArray(raw.stages)) throw new Error("Agent returned no execution stages");
-  const regain = path.join(root, ".regain");
-  const filename = `capability-${capability.id}.regain.md`;
-  let notebookPath = path.join(regain, filename);
-  let pinnedExamples = "";
-  try {
-    const previous = await fs.promises.readFile(notebookPath, "utf8");
-    if (!previous.includes("REGAIN_AGENT_V1")) notebookPath = path.join(regain, `capability-${capability.id}-${Date.now()}.regain.md`);
-    else pinnedExamples = previous.match(/<!-- REGAIN_EXAMPLES_BEGIN -->[\s\S]*?<!-- REGAIN_EXAMPLES_END -->/)?.[0] || "";
-  } catch (error) { if (error.code !== "ENOENT") throw error; }
-  const lines = ["<!-- REGAIN_AGENT_V1 -->", `# ${capability.name}`, "", clean(raw.overview), "",
-    ...sequenceMarkdown(raw.sequence), ...(pinnedExamples ? [pinnedExamples, ""] : [])];
-  const used = new Set();
-  for (const stage of raw.stages.slice(0, 30)) {
-    const sourceBlocks = [];
-    for (const source of (stage.sources || []).slice(0, 30)) {
-      const file = await sourcePath(root, source.path);
-      if (!file) continue;
-      const contents = await fs.promises.readFile(path.join(root, file), "utf8");
-      const count = contents.split(/\r?\n/).length;
-      const lo = Number(source.startLine), hi = Number(source.endLine);
-      const range = Number.isInteger(lo) && Number.isInteger(hi) && lo > 0 && hi >= lo && hi <= count ? ` ${lo}-${hi}` : "";
-      const key = file + range;
-      if (used.has(key)) continue;
-      used.add(key);
-      sourceBlocks.push(`### ${path.basename(file)}`, "", clean(source.role), "", `Source: [${file}](../${file})`, "", "```file " + file + range, "```", "");
-    }
-    if (!sourceBlocks.length) continue;
-    lines.push(`## ${clean(stage.name)}`, "", clean(stage.explanation), "", ...demonstrationMarkdown(stage.demonstrations), ...sourceBlocks);
-  }
-  if (!used.size) throw new Error("The detailed analysis contained no valid source references");
-  if (Array.isArray(raw.unresolved) && raw.unresolved.length) lines.push("## Unresolved", "", ...raw.unresolved.slice(0, 20).map(item => `- ${clean(item)}`), "");
-  await fs.promises.writeFile(notebookPath, lines.join("\n"), "utf8");
-
-  const reviewsPath = path.join(regain, "importance-reviews.json");
-  let reviews = [];
-  try { reviews = JSON.parse(await fs.promises.readFile(reviewsPath, "utf8")); }
-  catch (error) { if (error.code !== "ENOENT") throw error; }
-  if (!Array.isArray(reviews)) throw new Error("Existing importance-reviews.json is not an array");
-  let added = 0;
-  for (const decision of (raw.decisions || []).slice(0, 300)) {
-    const file = await sourcePath(root, decision.path);
-    if (!file || !["critical", "important", "supporting"].includes(decision.importance)) continue;
-    const source = (await fs.promises.readFile(path.join(root, file), "utf8")).replace(/\r\n/g, "\n");
-    const sourceLines = source.split("\n");
-    const line = Number(decision.line), match = clean(decision.match), why = clean(decision.why);
-    if (!Number.isInteger(line) || line < 1 || line > sourceLines.length || !match || !why || !sourceLines[line - 1].includes(match)) continue;
-    const sha256 = crypto.createHash("sha256").update(source).digest("hex");
-    if (reviews.some(item => item.file === file && item.line === line && item.sha256 === sha256)) continue;
-    reviews.push({file, sha256, match, line, importance: decision.importance, why});
-    added++;
-  }
-  if (added) await fs.promises.writeFile(reviewsPath, JSON.stringify(reviews, null, 2) + "\n", "utf8");
-  return {notebookPath, reviewedLines: added, sourceBlocks: used.size};
-}
-
-module.exports = {normalizeMap, normalizeBranch, showAnalyzing, mergePreviousMap, saveMap, saveBranch, findCapability, scopedCapability, saveDetail};
+module.exports = {tidy, stateOf, sourcePath, normalizeMap, normalizeBranch, showAnalyzing, mergePreviousMap, saveMap, saveBranch, findCapability, scopedCapability};

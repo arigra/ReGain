@@ -243,17 +243,23 @@ const $ = s => w.document.querySelector(s), $$ = s => [...w.document.querySelect
              {kind: "code", src: "y = 1"}],
     files: {"src/m.py": {text: "a = 1", start: 1}},
     visuals: {"visuals/m.svg": {exists: true, image: true, uri: "vsc://m.svg?v=1"}}});
-  assert.strictEqual($$(".vtab").length, 2, "file and code blocks only");
+  assert.strictEqual($$(".vtab:not(.ctab)").length, 2, "file and code blocks only");
+  assert.strictEqual($$(".ctab").length, 2, "each has a comments tab too");
   assert.ok($(".file .vtab").classList.contains("has") && !$(".code .vtab").classList.contains("has"));
   $(".file .vtab").click();
   assert.ok($(".blk.file").classList.contains("vopen"));
+  assert.ok($(".file .vtab").classList.contains("on") && !$(".file .ctab").classList.contains("on"));
   assert.strictEqual($(".vfig img").getAttribute("src"), "vsc://m.svg?v=1");
   $(".vfig figcaption .tbtn").click();
   assert.deepStrictEqual(sent.pop(), {type: "openVisual", path: "visuals/m.svg"});
   const vbtns = [...w.document.querySelectorAll(".vhead .tbtn")];
   vbtns[0].click();
-  assert.deepStrictEqual(sent.pop(), {type: "copyVisualRequest", index: 1});
+  const drawn = sent.pop();
+  assert.deepStrictEqual([drawn.type, drawn.index, vbtns[0].textContent], ["drawVisual", 1, "Draw another"], "a block with a visual can get another");
+  send({type: "visualDone", key: drawn.key});
   vbtns[1].click();
+  assert.deepStrictEqual(sent.pop(), {type: "copyVisualRequest", index: 1});
+  vbtns[2].click();
   assert.deepStrictEqual(sent.pop(), {type: "addVisual", index: 1});
   [...w.document.querySelectorAll(".vfig figcaption .tbtn")].pop().click();   // unlink
   const unlinked = sent.filter(m => m.type === "setBlocks").pop();

@@ -1,0 +1,45 @@
+{
+  "title": "Does blending clips help?",
+  "verdict": "Probably, but only on the small split so far. Training on blends of two clips raised accuracy from 71.2% to 74.0% with 500 clips per class, a gain more than twice the 1.1-point spread across three seeds. The full-data run stopped at epoch 12 without saving a result, so we do not know if the gain survives more data.",
+  "terms": [
+    {"term": "mixup", "meaning": "training on weighted blends of two clips and of their labels"},
+    {"term": "seed spread", "meaning": "best minus worst score over runs that differ only in random seed"}
+  ],
+  "sections": [
+    {
+      "heading": "Blend two clips into one",
+      "takeaway": "Each training batch is paired with a shuffled copy of itself, and both clips and labels are blended with one random weight.",
+      "body": "The weight comes from a Beta(0.4, 0.4) draw, so most blends stay close to one of the two clips. Labels are blended with the same weight, which is why the loss takes soft targets instead of class numbers. Validation clips are never blended, so the scores in the last section measure ordinary clips.",
+      "excerpts": [
+        {"path": "train/augment.py", "startLine": 14, "endLine": 29, "heading": "One weight for the whole batch",
+         "notice": "Line 21 draws a single weight per batch, not one per clip. Every pair in a batch is blended by the same amount, which makes the augmentation noisier than the paper's version."}
+      ],
+      "demonstrations": []
+    },
+    {
+      "heading": "Compare with and without blending",
+      "takeaway": "Two runs differ only in the blend flag: same 500 clips per class, same 30 epochs, seeds 1, 2 and 3.",
+      "body": "The comparison rule was written before the runs: blending counts as a gain only if the mean improvement is larger than the seed spread of the plain runs. A seed spread is a rough guard against luck, not a significance test, and three seeds is the minimum that makes it meaningful.",
+      "excerpts": [
+        {"path": "experiments/mixup_small.py", "startLine": 40, "endLine": 58, "heading": "The rule decided in advance",
+         "notice": "The rule compares against the plain runs' spread (lines 52-55), not the blended runs' spread. A noisier blended model could still pass."}
+      ],
+      "demonstrations": []
+    },
+    {
+      "heading": "Read the result",
+      "takeaway": "Mean accuracy went from 71.2% to 74.0%, a 2.8-point gain against a 1.1-point seed spread, so the saved verdict is a gain.",
+      "body": "All three blended seeds beat all three plain seeds, which is stronger than the mean alone. The gain is largest on the two rarest classes. The full-data run that would test the gain at scale stops at epoch 12 in its log, with no error message and no result file.",
+      "excerpts": [
+        {"path": "results/mixup_small.json", "startLine": 1, "endLine": 18, "heading": "Per-seed scores and the verdict",
+         "notice": "The per-class scores at lines 10-15 show where the gain comes from. The verdict field at line 17 is computed by the script, not written by hand."}
+      ],
+      "demonstrations": []
+    }
+  ],
+  "unresolved": [
+    "Why did the full-data run stop at epoch 12? Its log ends without an error message."
+  ],
+  "evidence": ["results/mixup_small.json"],
+  "decisions": []
+}

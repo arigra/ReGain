@@ -2,7 +2,7 @@
   "name": "regain",
   "displayName": "ReGain",
   "description": "Opens a project's .regain pages with runnable Python and shell blocks and project-reviewed line explanations.",
-  "version": "1.1.12",
+  "version": "1.5.0",
   "publisher": "arigra",
   "license": "UNLICENSED",
   "engines": {
@@ -82,13 +82,28 @@
           "type": "string",
           "default": "",
           "description": "Python used for the kernel. Empty: the interpreter selected in the Python extension, else python3. It needs jupyter_client and ipykernel."
+        },
+        "regain.claudeModel": {
+          "type": "string",
+          "default": "sonnet",
+          "description": "Model for Claude Code analysis: an alias (sonnet, opus, haiku) or a full model id. Empty: Claude Code's own default."
+        },
+        "regain.claudeFastModel": {
+          "type": "string",
+          "default": "haiku",
+          "description": "Model for classifying repository files with Claude Code, the bulk step. Empty: use ReGain: Claude Model."
+        },
+        "regain.codexModel": {
+          "type": "string",
+          "default": "",
+          "description": "Model for Codex analysis. Empty: the model in your Codex configuration."
         }
       }
     }
   },
   "scripts": {
     "vscode:prepublish": "node scripts/stage-tooling.js",
-    "test": "node test/format.test.js && node test/diff.test.js && node test/view.test.js && node test/provider.test.js && node test/kernel.test.js",
+    "test": "node test/format.test.js && node test/diff.test.js && node test/view.test.js && node test/provider.test.js && node test/parallel.test.js && node test/diagram.test.js && node test/map-flow.test.js && node test/agent.test.js && node test/guide-view.test.js && node test/kernel.test.js",
     "package": "vsce package --skip-license -o ../dist/"
   },
   "devDependencies": {
